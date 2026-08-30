@@ -37,36 +37,6 @@ _cleanup_registered = False
 IS_WINDOWS = sys.platform == 'win32'
 
 
-def _get_simulation_python() -> str:
-    """
-    获取模拟环境的 Python 解释器路径
-
-    优先级：
-    1. 环境变量 SIMULATION_PYTHON
-    2. 项目目录下的 .venv-simulation/bin/python
-    3. 回退到当前 Python 解释器
-
-    模拟环境需要 camel-oasis/camel-ai (neo4j==5.23.0)，
-    与主环境的 graphiti-core (neo4j>=5.26.0) 不兼容，需要隔离运行。
-    """
-    # 1. 环境变量优先
-    env_python = os.environ.get('SIMULATION_PYTHON')
-    if env_python and os.path.isfile(env_python):
-        logger.info(f"使用环境变量指定的模拟 Python: {env_python}")
-        return env_python
-
-    # 2. 检查项目目录下的独立模拟环境
-    backend_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    sim_venv_python = os.path.join(backend_dir, '.venv-simulation', 'bin', 'python')
-    if os.path.isfile(sim_venv_python):
-        logger.info(f"使用独立模拟环境: {sim_venv_python}")
-        return sim_venv_python
-
-    # 3. 回退到当前解释器（可能会因依赖冲突失败）
-    logger.warning("未找到独立模拟环境，使用当前 Python（可能存在依赖冲突）")
-    return sys.executable
-
-
 class RunnerStatus(str, Enum):
     """运行器状态"""
     IDLE = "idle"
@@ -545,7 +515,7 @@ class SimulationRunner:
             #   simulation.log        - 主进程日志
 
             cmd = [
-                _get_simulation_python(),  # 使用独立的模拟环境
+                sys.executable,
                 script_path,
                 "--config", config_path,  # 使用完整配置文件路径
             ]

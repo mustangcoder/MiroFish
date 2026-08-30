@@ -13,6 +13,51 @@ def _error(message, status):
     return jsonify({"error": {"message": message, "type": "gateway_error"}}), status
 
 
+def _responses_messages(payload):
+    messages = []
+    instructions = payload.get("instructions")
+    if instructions:
+        messages.append({"role": "system", "content": str(instructions)})
+    input_value = payload.get("input")
+    if isinstance(input_value, str):
+        messages.append({"role": "user", "content": input_value})
+    elif isinstance(input_value, list):
+        for item in input_value:
+            if not isinstance(item, dict) or item.get("role") not in {"system", "developer", "user", "assistant"}:
+                raise ValueError("input items must be messages")
+            content = item.get("content", "")
+            if isinstance(content, list):
+                content = "".join(
+                    str(part.get("text", ""))
+                    for part in content
+                    if isinstance(part, dict) and part.get("type") in {"input_text", "output_text", "text"}
+                )
+            messages.append({"role": item["role"], "content": str(content)})
+    else:
+        raise ValueError("input must be a string or list")
+    return messages
+
+
+def _chat_request_from_response(payload):
+    request_value = {
+        "model": payload.get("model"),
+        "messages": _responses_messages(payload),
+    }
+    text_format = (payload.get("text") or {}).get("format")
+    if text_format:
+        request_value["response_format"] = (
+            {"type": "json_schema", "json_schema": text_format}
+            if text_format.get("type") == "json_schema"
+            else text_format
+        )
+    for key in ("temperature", "tools"):
+        if payload.get(key) is not None:
+            request_value[key] = payload[key]
+    if payload.get("max_output_tokens") is not None:
+        request_value["max_tokens"] = payload["max_output_tokens"]
+    return request_value
+
+
 def create_app(*, router, config, account_reader=None, device_logins=None, logout=None):
     app = Flask(__name__)
 
@@ -32,7 +77,10 @@ def create_app(*, router, config, account_reader=None, device_logins=None, logou
     @app.get("/v1/models")
     def models():
         if not authorized(): return _error("unauthorized", 401)
-        return {"object": "list", "data": [{"id": config.model, "object": "model", "owned_by": "chatgpt-subscription"}]}
+        return {"object": "list", "data": [
+            {"id": model, "object": "model", "owned_by": "chatgpt-subscription"}
+            for model in getattr(config, "models", (config.model,))
+        ]}
 
     @app.post("/oauth/device/start")
     def oauth_start():
@@ -76,6 +124,43 @@ def create_app(*, router, config, account_reader=None, device_logins=None, logou
             app.logger.error("direct provider failed error_type=%s status_code=%s", type(error).__name__, getattr(error, "status_code", None))
             return _error("LLM provider request failed", 502)
         response = jsonify({"id": f"chatcmpl-{uuid.uuid4().hex}", "object": "chat.completion", "created": int(time.time()), "model": result.model, "choices": [{"index": 0, "message": {"role": "assistant", "content": result.content}, "finish_reason": "stop"}], "usage": result.usage})
+        response.headers["X-MiroFish-Provider"] = result.provider
+        return response
+
+    @app.post("/v1/responses")
+    def responses():
+        if not authorized():
+            return _error("unauthorized", 401)
+        payload = request.get_json(silent=True)
+        if not isinstance(payload, dict):
+            return _error("request body must be an object", 400)
+        if payload.get("stream") is True:
+            return _error("stream=true is not supported", 400)
+        try:
+            result = router.complete(_chat_request_from_response(payload))
+        except CircuitOpenError:
+            return _error("provider circuit is open", 503)
+        except ValueError as error:
+            return _error(str(error), 400)
+        except Exception as error:
+            app.logger.error("direct provider failed error_type=%s status_code=%s", type(error).__name__, getattr(error, "status_code", None))
+            return _error("LLM provider request failed", 502)
+        response_id = f"resp_{uuid.uuid4().hex}"
+        response = jsonify({
+            "id": response_id,
+            "object": "response",
+            "created_at": int(time.time()),
+            "status": "completed",
+            "model": result.model,
+            "output": [{
+                "id": f"msg_{uuid.uuid4().hex}",
+                "type": "message",
+                "status": "completed",
+                "role": "assistant",
+                "content": [{"type": "output_text", "text": result.content, "annotations": []}],
+            }],
+            "usage": result.usage,
+        })
         response.headers["X-MiroFish-Provider"] = result.provider
         return response
 

@@ -115,6 +115,8 @@ def setup_oasis_logging(log_dir: str):
         logger.propagate = False
 
 
+from protocol_model_backend import create_simulation_model
+
 try:
     from camel.models import ModelFactory
     from camel.types import ModelPlatformType
@@ -437,6 +439,7 @@ class TwitterSimulationRunner:
         llm_api_key = os.environ.get("LLM_API_KEY", "")
         llm_base_url = os.environ.get("LLM_BASE_URL", "")
         llm_model = os.environ.get("LLM_MODEL_NAME", "")
+        llm_protocol = os.environ.get("LLM_PROTOCOL", "openai_chat_completions")
         
         # 如果 .env 中没有，则使用 config 作为备用
         if not llm_model:
@@ -454,10 +457,7 @@ class TwitterSimulationRunner:
         
         print(f"LLM配置: model={llm_model}, base_url={llm_base_url[:40] if llm_base_url else '默认'}...")
         
-        return ModelFactory.create(
-            model_platform=ModelPlatformType.OPENAI,
-            model_type=llm_model,
-        )
+        return create_simulation_model(llm_api_key, llm_base_url, llm_model, llm_protocol)
     
     def _get_active_agents_for_round(
         self, 

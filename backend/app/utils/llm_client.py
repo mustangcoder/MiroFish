@@ -7,11 +7,11 @@ import json
 import logging
 import re
 from typing import Optional, Dict, Any, List
-from openai import OpenAI
+from types import SimpleNamespace
 
 from ..config import Config
 from ..models.model_config import ModelRole
-from .openai_chat_compat import create_chat_completion, extract_chat_completion_text
+from .openai_chat_compat import extract_chat_completion_text
 
 
 logger = logging.getLogger(__name__)
@@ -99,20 +99,28 @@ class LLMClient:
         model: Optional[str] = None,
         role: ModelRole = ModelRole.HIGH_CAPABILITY,
         project_id: Optional[str] = None,
+        router=None,
+        text_client_factory=None,
     ):
         from ..services.model_router import ModelRouter
-        resolved = ModelRouter().resolve(role, project_id)
+        resolved = (router or ModelRouter()).resolve(role, project_id)
         self.api_key = api_key or resolved.get("api_key") or Config.LLM_API_KEY
         self.base_url = base_url or resolved.get("base_url") or Config.LLM_BASE_URL
         self.model = model or resolved.get("model") or Config.LLM_MODEL_NAME
+        self.protocol = resolved.get("protocol", "openai_chat_completions")
 
         if not self.api_key:
             raise ValueError("LLM_API_KEY 未配置")
 
-        self.client = OpenAI(
-            api_key=self.api_key,
-            base_url=self.base_url
+        if text_client_factory is None:
+            from ..services.protocols.factory import create_text_client
+
+            text_client_factory = create_text_client
+        connection = SimpleNamespace(
+            protocol=self.protocol,
+            base_url=self.base_url,
         )
+        self.client = text_client_factory(connection, self.api_key)
 
     def _create_completion(
         self,
@@ -122,16 +130,28 @@ class LLMClient:
         max_tokens: Optional[int],
         response_format: Optional[Dict[str, Any]],
     ) -> Any:
-        """Send one raw Chat Completions request through the compatibility layer."""
+        """通过选定协议发送一次文本生成请求。"""
 
-        return create_chat_completion(
-            self.client,
+        from ..services.protocols.base import TextGenerationRequest
+
+        if not hasattr(self.client, "generate"):
+            from .openai_chat_compat import create_chat_completion
+
+            return create_chat_completion(
+                self.client,
+                model=self.model,
+                messages=messages,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                response_format=response_format,
+            )
+        return self.client.generate(TextGenerationRequest(
             model=self.model,
             messages=messages,
             temperature=temperature,
-            max_tokens=max_tokens,
+            max_output_tokens=max_tokens,
             response_format=response_format,
-        )
+        ))
 
     def chat(
         self,
@@ -158,7 +178,7 @@ class LLMClient:
             max_tokens=max_tokens,
             response_format=response_format,
         )
-        content = extract_chat_completion_text(response)
+        content = response.text if hasattr(response, "text") and not hasattr(response, "choices") else extract_chat_completion_text(response)
         return _clean_chat_text(content)
 
     def chat_json(
@@ -238,6 +258,23 @@ class LLMClient:
 
     @staticmethod
     def _parse_json_response(response: Any) -> Dict[str, Any]:
+        if hasattr(response, "text") and not hasattr(response, "choices"):
+            finish_reason = response.finish_reason
+            if finish_reason in {"length", "max_tokens", "incomplete"}:
+                raise LLMResponseError(
+                    "LLM JSON output was truncated at the token limit",
+                    finish_reason=finish_reason,
+                )
+            if finish_reason not in {None, "stop", "completed", "end_turn"}:
+                raise LLMResponseError(
+                    f"LLM JSON generation stopped unexpectedly ({finish_reason})",
+                    finish_reason=finish_reason,
+                )
+            content = _clean_chat_text(response.text)
+            if not content:
+                raise LLMResponseError("LLM returned empty JSON content", finish_reason=finish_reason)
+            return LLMClient._parse_json_content(content, finish_reason)
+
         choices = getattr(response, "choices", None) or []
         if not choices:
             raise LLMResponseError("LLM returned no choices")
@@ -262,6 +299,10 @@ class LLMClient:
                 finish_reason=finish_reason,
             )
 
+        return LLMClient._parse_json_content(content, finish_reason)
+
+    @staticmethod
+    def _parse_json_content(content: str, finish_reason: Optional[str]) -> Dict[str, Any]:
         try:
             value = json.loads(content)
         except json.JSONDecodeError as strict_error:

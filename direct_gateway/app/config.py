@@ -17,11 +17,20 @@ class DirectConfig:
     redirect_uri: str = "https://auth.openai.com/deviceauth/callback"
     codex_endpoint: str = "https://chatgpt.com/backend-api/codex/responses"
     model: str = "gpt-5.6-luna"
+    models: tuple[str, ...] = ("gpt-5.6-luna", "gpt-5.6-terra", "gpt-5.6-sol")
     credentials_path: str = "/var/lib/direct-oauth/credentials.json"
     request_timeout_seconds: int = 600
 
     @classmethod
     def from_mapping(cls, values: Mapping[str, str]) -> "DirectConfig":
+        model = values.get("DIRECT_CODEX_MODEL", cls.model)
+        models = tuple(
+            item.strip()
+            for item in values.get("DIRECT_CODEX_MODELS", ",".join(cls.models)).split(",")
+            if item.strip()
+        )
+        if model not in models:
+            models = (model, *models)
         config = cls(
             internal_token=values.get("DIRECT_GATEWAY_TOKEN", ""),
             client_id=values.get("DIRECT_OAUTH_CLIENT_ID", cls.client_id),
@@ -31,7 +40,8 @@ class DirectConfig:
             token_path=values.get("DIRECT_OAUTH_TOKEN_PATH", cls.token_path),
             redirect_uri=values.get("DIRECT_OAUTH_REDIRECT_URI", cls.redirect_uri),
             codex_endpoint=values.get("DIRECT_CODEX_ENDPOINT", cls.codex_endpoint),
-            model=values.get("DIRECT_CODEX_MODEL", cls.model),
+            model=model,
+            models=models,
             credentials_path=values.get("DIRECT_OAUTH_CREDENTIALS_PATH", cls.credentials_path),
             request_timeout_seconds=int(values.get("DIRECT_REQUEST_TIMEOUT_SECONDS", "600")),
         )

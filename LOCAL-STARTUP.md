@@ -10,16 +10,15 @@
 │   (Vue 3)   │     │   (Flask)   │     │  (Docker)   │
 └─────────────┘     └──────┬──────┘     └─────────────┘
                            │
-                    ┌──────┴──────┐
-                    │             │
-              ┌─────▼─────┐ ┌─────▼─────┐
-              │  主环境    │ │  模拟环境  │
-              │ graphiti  │ │ camel-ai  │
-              │ neo4j 6.x │ │ neo4j 5.x │
-              └───────────┘ └───────────┘
+                    ┌──────▼──────┐
+                    │ Python 环境  │
+                    │ graphiti +  │
+                    │ camel-ai    │
+                    │ neo4j 5.26  │
+                    └─────────────┘
 ```
 
-**双环境隔离**：camel-ai 和 graphiti-core 对 neo4j driver 版本有冲突，通过独立虚拟环境解决。
+**单环境运行**：Graphiti、OASIS 和 Neo4j Server 统一使用 Neo4j 5.26.0。
 
 ## 前置要求
 
@@ -76,19 +75,7 @@ npm run setup          # Node 依赖
 npm run setup:backend  # Python 依赖
 ```
 
-### 4. 创建模拟环境
-
-解决 neo4j 版本冲突：
-
-```bash
-cd backend
-uv venv .venv-simulation --python 3.11
-source .venv-simulation/bin/activate
-uv pip install camel-oasis openai python-dotenv
-deactivate
-```
-
-### 5. 启动服务
+### 4. 启动服务
 
 ```bash
 npm run dev
@@ -121,10 +108,9 @@ rm -rf uploads/simulations/* uploads/projects/*
 ```bash
 cd backend
 
-# 检查 neo4j 版本隔离
-echo "主环境: $(.venv/bin/python -c 'import neo4j; print(neo4j.__version__)')"
-echo "模拟环境: $(.venv-simulation/bin/python -c 'import neo4j; print(neo4j.__version__)')"
-# 预期：主环境 6.x，模拟环境 5.23.0
+# 检查统一后的 neo4j 版本
+echo "Neo4j Driver: $(.venv/bin/python -c 'import neo4j; print(neo4j.__version__)')"
+# 预期：5.26.0
 ```
 
 ## 问题排查

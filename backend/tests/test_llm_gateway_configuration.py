@@ -11,14 +11,14 @@ def _read_env_template():
     return values
 
 
-def test_text_llm_uses_gateway_while_embedding_stays_local():
+def test_text_llm_uses_direct_gateway_while_embedding_stays_local():
     values = _read_env_template()
 
-    assert values["LLM_BASE_URL"] == "http://codex-gateway:8080/v1"
-    assert values["LLM_MODEL_NAME"] == values["CODEX_MODEL"]
-    assert values["GRAPHITI_LLM_MODEL"] == values["CODEX_MODEL"]
+    assert values["LLM_BASE_URL"] == "http://direct-oauth-gateway:8090/v1"
+    assert values["LLM_MODEL_NAME"] == values["DIRECT_CODEX_MODEL"]
+    assert values["GRAPHITI_LLM_MODEL"] == values["DIRECT_CODEX_MODEL"]
     assert values["GRAPHITI_EMBEDDING_BASE_URL"] == "http://embedding:80/v1"
-    assert values["FALLBACK_LLM_BASE_URL"] == "https://api.deepseek.com"
+    assert not any(key.startswith("CODEX_GATEWAY") or key.startswith("FALLBACK_LLM") for key in values)
 
 
 def test_backend_depends_on_healthy_direct_gateway():
@@ -30,13 +30,35 @@ def test_backend_depends_on_healthy_direct_gateway():
     assert "condition: service_healthy" in backend_section
 
 
-def test_gateway_has_threads_for_queue_and_health_checks():
+def test_local_compose_runs_gateway_with_shared_internal_token():
+    path = Path(__file__).resolve().parents[2] / "docker-compose.yml"
+    compose = path.read_text()
+
+    assert "direct-oauth-gateway:" in compose
+    assert compose.count("DIRECT_GATEWAY_TOKEN: ${DIRECT_GATEWAY_TOKEN:-mirofish-local-only}") == 2
+    assert "condition: service_healthy" in compose
+
+
+def test_graphiti_operation_timeout_supports_long_running_builds():
     root = Path(__file__).resolve().parents[2]
-    dockerfile = (root / "codex_gateway" / "Dockerfile").read_text()
     values = _read_env_template()
 
-    assert '"--threads", "24"' in dockerfile
     assert values["GRAPHITI_OPERATION_TIMEOUT_SECONDS"] == "3600"
+
+
+def test_codex_gateway_is_not_a_runtime_provider():
+    root = Path(__file__).resolve().parents[2]
+    runtime_text = "\n".join([
+        (root / "frontend/src/views/ModelSettingsView.vue").read_text(),
+        (root / "backend/app/models/model_config.py").read_text(),
+        (root / "backend/app/services/model_connection_tester.py").read_text(),
+        (root / "docker-compose.production.yml").read_text(),
+        (root / ".env.production.example").read_text(),
+    ])
+
+    assert "codex_gateway" not in runtime_text
+    assert "codex-gateway" not in runtime_text
+    assert "Codex Gateway" not in runtime_text
 
 
 def test_graph_build_batch_size_restores_three_way_throughput():

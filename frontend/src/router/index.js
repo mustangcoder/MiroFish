@@ -20,8 +20,8 @@ const routes = [
     component: HistoryView
   },
   {
-    path: '/settings/models',
-    name: 'ModelSettings',
+    path: '/settings',
+    name: 'Settings',
     component: ModelSettingsView
   },
   {

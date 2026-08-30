@@ -3,6 +3,7 @@
 from dataclasses import asdict
 from enum import Enum
 import json
+import http.client
 import os
 import urllib.error
 import urllib.request
@@ -13,13 +14,16 @@ from . import model_settings_bp
 from ..services.model_config_service import ModelConfigService
 from ..services.model_connection_tester import ModelConnectionTester
 from ..services.model_discovery import ModelDiscovery
+from ..services.draft_connection_tester import DraftConnectionTester
+from ..services.memory_backend_config_service import MemoryBackendConfigService
 from ..models.model_config import ModelRole
+from ..services.provider_catalog import list_provider_specs, protocol_capability
 
 
 def _json(value):
     if isinstance(value, Enum): return value.value
     if isinstance(value, dict): return {str(k.value if isinstance(k, Enum) else k): _json(v) for k, v in value.items()}
-    if isinstance(value, list): return [_json(v) for v in value]
+    if isinstance(value, (list, tuple)): return [_json(v) for v in value]
     return value
 
 
@@ -27,6 +31,47 @@ def _service():
     service = ModelConfigService()
     service.initialize_from_environment()
     return service
+
+
+def _memory_service():
+    service = MemoryBackendConfigService()
+    service.initialize_from_environment()
+    return service
+
+
+@model_settings_bp.get('/memory-backend')
+def get_memory_backend():
+    return jsonify({"success": True, "data": _memory_service().get_config()})
+
+
+@model_settings_bp.put('/memory-backend')
+def update_memory_backend():
+    service = _memory_service()
+    try:
+        config = service.save_config(request.get_json() or {})
+        service.apply_runtime_config()
+        return jsonify({"success": True, "data": config})
+    except ValueError as error:
+        return jsonify({"success": False, "error": str(error)}), 400
+
+
+@model_settings_bp.post('/memory-backend/test')
+def test_memory_backend():
+    try:
+        result = _memory_service().test_connection(request.get_json() or {})
+        return jsonify({"success": True, "data": result})
+    except ValueError as error:
+        return jsonify({"success": False, "error": str(error)}), 400
+    except Exception as error:
+        config = request.get_json() or {}
+        message = "连接测试失败，请检查地址和凭据"
+        if config.get("backend") == "graphiti" and "localhost" in config.get("neo4j_uri", ""):
+            message = "Docker 部署中 localhost 指向应用容器，请改用 bolt://neo4j:7687"
+        return jsonify({
+            "success": False,
+            "error": message,
+            "error_code": type(error).__name__,
+        }), 422
 
 
 def _gateway_request(path, method='GET'):
@@ -38,6 +83,8 @@ def _gateway_request(path, method='GET'):
             return json.load(response), response.status
     except urllib.error.HTTPError as error:
         return json.load(error), error.code
+    except (urllib.error.URLError, http.client.RemoteDisconnected, TimeoutError):
+        return {"authenticated": False, "error": "OAuth Gateway 不可用"}, 503
 
 
 @model_settings_bp.get('/connections')
@@ -45,12 +92,44 @@ def list_connections():
     return jsonify({"success": True, "data": [_json(asdict(item)) for item in _service().store.list_connections()]})
 
 
+@model_settings_bp.get('/provider-catalog')
+def provider_catalog():
+    data = []
+    for spec in list_provider_specs():
+        data.append({
+            "vendor": spec.vendor.value,
+            "label": spec.label,
+            "default_base_url": spec.default_base_url,
+            "protocols": [protocol.value for protocol in spec.protocols],
+            "default_protocol": spec.default_protocol.value,
+            "default_auth_type": spec.default_auth_type.value,
+            "capabilities": sorted({protocol_capability(protocol).value for protocol in spec.protocols}),
+        })
+    return jsonify({"success": True, "data": data})
+
+
 @model_settings_bp.post('/connections')
 def create_connection():
     data = request.get_json() or {}
     try:
-        item = _service().store.create_connection(data["name"], data["connection_type"], data["base_url"], data.get("api_key", ""), data.get("is_local", False))
+        item = _service().create_connection(data)
         return jsonify({"success": True, "data": _json(asdict(item))}), 201
+    except (KeyError, ValueError) as error:
+        return jsonify({"success": False, "error": str(error)}), 400
+
+
+@model_settings_bp.post('/connections/test-draft')
+def test_draft_connection():
+    data = request.get_json() or {}
+    try:
+        _service().validate_connection_data(data)
+        result = DraftConnectionTester().test(data)
+        success = result["status"] == "passed"
+        return jsonify({
+            "success": success,
+            "data": result,
+            "error": None if success else "连接测试失败",
+        }), 200 if success else 422
     except (KeyError, ValueError) as error:
         return jsonify({"success": False, "error": str(error)}), 400
 
@@ -99,13 +178,16 @@ def connection_models(connection_id):
     try:
         service = _service()
         role = ModelRole(request.args.get('role', 'high_capability'))
+        protocol = request.args.get('protocol')
+        if not protocol:
+            return jsonify({"success": False, "error": "缺少 protocol"}), 400
         connection = service.store.get_connection(connection_id)
-        models = ModelDiscovery().list_models(connection, service.store.get_connection_secret(connection_id), role)
-        return jsonify({"success": True, "data": models})
+        result = ModelDiscovery().list_models(connection, service.store.get_connection_secret(connection_id), role, protocol)
+        return jsonify({"success": True, "data": result["models"], "manual_entry": result["manual_entry"]})
     except (KeyError, ValueError) as error:
         return jsonify({"success": False, "error": str(error)}), 400
     except Exception as error:
-        return jsonify({"success": False, "error": "无法获取模型列表", "error_code": type(error).__name__}), 502
+        return jsonify({"success": True, "data": [], "manual_entry": True, "warning_code": type(error).__name__})
 
 
 @model_settings_bp.get('/active')
@@ -117,6 +199,8 @@ def active():
 @model_settings_bp.get('/oauth/account')
 def oauth_account():
     data, status = _gateway_request('/account')
+    if status == 503:
+        return jsonify({"success": True, "data": data}), 200
     return jsonify({"success": status < 400, "data": data}), status
 
 

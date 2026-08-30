@@ -156,6 +156,7 @@ def init_logging_for_simulation(simulation_dir: str):
 
 
 from action_logger import SimulationLogManager, PlatformActionLogger
+from protocol_model_backend import create_simulation_model
 
 try:
     from camel.models import ModelFactory
@@ -999,6 +1000,7 @@ def create_model(config: Dict[str, Any], use_boost: bool = False):
     boost_api_key = os.environ.get("LLM_BOOST_API_KEY", "")
     boost_base_url = os.environ.get("LLM_BOOST_BASE_URL", "")
     boost_model = os.environ.get("LLM_BOOST_MODEL_NAME", "")
+    boost_protocol = os.environ.get("LLM_BOOST_PROTOCOL", "")
     has_boost_config = bool(boost_api_key)
     
     # 根据参数和配置情况选择使用哪个 LLM
@@ -1007,12 +1009,14 @@ def create_model(config: Dict[str, Any], use_boost: bool = False):
         llm_api_key = boost_api_key
         llm_base_url = boost_base_url
         llm_model = boost_model or os.environ.get("LLM_MODEL_NAME", "")
+        llm_protocol = boost_protocol or os.environ.get("LLM_PROTOCOL", "openai_chat_completions")
         config_label = "[加速LLM]"
     else:
         # 使用通用配置
         llm_api_key = os.environ.get("LLM_API_KEY", "")
         llm_base_url = os.environ.get("LLM_BASE_URL", "")
         llm_model = os.environ.get("LLM_MODEL_NAME", "")
+        llm_protocol = os.environ.get("LLM_PROTOCOL", "openai_chat_completions")
         config_label = "[通用LLM]"
     
     # 如果 .env 中没有模型名，则使用 config 作为备用
@@ -1031,10 +1035,7 @@ def create_model(config: Dict[str, Any], use_boost: bool = False):
     
     print(f"{config_label} model={llm_model}, base_url={llm_base_url[:40] if llm_base_url else '默认'}...")
     
-    return ModelFactory.create(
-        model_platform=ModelPlatformType.OPENAI,
-        model_type=llm_model,
-    )
+    return create_simulation_model(llm_api_key, llm_base_url, llm_model, llm_protocol)
 
 
 def get_active_agents_for_round(

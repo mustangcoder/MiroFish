@@ -1,39 +1,43 @@
-"""统一发现并按职责过滤 Provider 支持的模型。"""
+"""按厂商能力发现模型，失败时允许手工输入。"""
 
 from openai import OpenAI
 
-from ..models.model_config import ModelRole
+from ..models.model_config import APIProtocol, ModelCapability, ModelRole
+from .provider_credentials import resolve_connection_credential
 
 
 class ModelDiscovery:
-    def __init__(self, client_factory=OpenAI):
-        self.client_factory = client_factory
+    def __init__(self, openai_client_factory=OpenAI):
+        self.openai_client_factory = openai_client_factory
 
     @staticmethod
     def _capability(model_id):
         value = model_id.lower()
-        return "embedding" if "embed" in value or "embedding" in value else "chat"
+        return ModelCapability.EMBEDDING if "embed" in value or "embedding" in value else ModelCapability.TEXT_GENERATION
 
-    def list_models(self, connection, api_key, role):
+    def list_models(self, connection, api_key, role, protocol=None):
+        api_key = resolve_connection_credential(connection, api_key)
         role = ModelRole(role)
-        client = self.client_factory(api_key=api_key or "local", base_url=connection.base_url, timeout=20)
-        response = client.models.list()
-        expected = "embedding" if role == ModelRole.EMBEDDING else "chat"
+        protocol = APIProtocol(protocol or connection.protocol)
+        if getattr(connection, "protocols", ()) and protocol not in {item.protocol for item in connection.protocols}:
+            raise ValueError("连接未启用所选协议")
+        try:
+            if protocol == APIProtocol.ANTHROPIC_MESSAGES:
+                from anthropic import Anthropic
+
+                response = Anthropic(api_key=api_key or "local", base_url=connection.base_url).models.list()
+            else:
+                client = self.openai_client_factory(api_key=api_key or "local", base_url=connection.base_url, timeout=20)
+                response = client.models.list()
+        except Exception:
+            return {"models": [], "manual_entry": True}
+
+        expected = ModelCapability.EMBEDDING if role == ModelRole.EMBEDDING else ModelCapability.TEXT_GENERATION
         values = []
         for model in response.data:
             model_id = str(model.id)
             capability = self._capability(model_id)
             if capability != expected:
                 continue
-            if expected == "embedding":
-                try:
-                    probe = client.embeddings.create(model=model_id, input=["model capability probe"])
-                    if not probe.data or not probe.data[0].embedding:
-                        continue
-                    response_model = getattr(probe, "model", None)
-                    if response_model and response_model != model_id:
-                        continue
-                except Exception:
-                    continue
-            values.append({"id": model_id, "capability": capability, "available": True, "local": bool(connection.is_local)})
-        return sorted(values, key=lambda item: item["id"].lower())
+            values.append({"id": model_id, "capability": capability.value, "available": True})
+        return {"models": sorted(values, key=lambda item: item["id"].lower()), "manual_entry": False}

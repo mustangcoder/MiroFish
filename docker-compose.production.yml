@@ -19,35 +19,6 @@ services:
     restart: unless-stopped
     mem_limit: 384m
 
-  codex-gateway:
-    build:
-      context: .
-      dockerfile: codex_gateway/Dockerfile
-    container_name: mirofish-codex-gateway
-    env_file:
-      - .env
-    environment:
-      CODEX_HOME: /var/lib/codex
-      CODEX_DISABLE_PROJECT_DOC: "1"
-      RUST_LOG: warn
-    expose:
-      - "8080"
-    volumes:
-      - codex_auth:/var/lib/codex
-    healthcheck:
-      test:
-        - CMD
-        - .venv/bin/python
-        - -c
-        - import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=3)
-      interval: 15s
-      timeout: 5s
-      retries: 12
-      start_period: 30s
-    restart: unless-stopped
-    mem_limit: 512m
-    profiles: ["official-codex"]
-
   web:
     build:
       context: .
@@ -93,7 +64,7 @@ services:
     mem_limit: 900m
 
   neo4j:
-    image: neo4j:5.26
+    image: neo4j:5.26.0
     container_name: mirofish-neo4j
     environment:
       NEO4J_AUTH: neo4j/${NEO4J_PASSWORD:?NEO4J_PASSWORD must be set}
@@ -144,7 +115,6 @@ services:
 
 volumes:
   direct_oauth_credentials:
-  codex_auth:
   neo4j_data:
   neo4j_logs:
   embedding_cache:

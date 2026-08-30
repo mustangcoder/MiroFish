@@ -2,6 +2,7 @@ import service from './index'
 
 export const getModelConnections = () => service.get('/api/settings/models/connections')
 export const createModelConnection = data => service.post('/api/settings/models/connections', data)
+export const testDraftModelConnection = data => service.post('/api/settings/models/connections/test-draft', data)
 export const updateModelConnection = (id, data) => service.patch(`/api/settings/models/connections/${id}`, data)
 export const deleteModelConnection = id => service.delete(`/api/settings/models/connections/${id}`)
 export const getModelDraft = () => service.get('/api/settings/models/draft')
@@ -14,4 +15,8 @@ export const startChatGptLogin = () => service.post('/api/settings/models/oauth/
 export const getChatGptLoginStatus = loginId => service.get(`/api/settings/models/oauth/device/${loginId}`)
 export const cancelChatGptLogin = loginId => service.post(`/api/settings/models/oauth/device/${loginId}/cancel`)
 export const logoutChatGpt = () => service.post('/api/settings/models/oauth/logout')
-export const getConnectionModels = (connectionId, role) => service.get(`/api/settings/models/connections/${connectionId}/models`, { params: { role } })
+export const getConnectionModels = (connectionId, role, protocol) => service.get(`/api/settings/models/connections/${connectionId}/models`, { params: { role, protocol } })
+export const getProviderCatalog = () => service.get('/api/settings/models/provider-catalog')
+export const getMemoryBackend = () => service.get('/api/settings/models/memory-backend')
+export const testMemoryBackend = data => service.post('/api/settings/models/memory-backend/test', data)
+export const saveMemoryBackend = data => service.put('/api/settings/models/memory-backend', data)

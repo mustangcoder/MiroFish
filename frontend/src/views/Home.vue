@@ -4,7 +4,7 @@
     <nav class="navbar">
       <div class="nav-brand">MIROFISH</div>
       <div class="nav-links">
-        <router-link to="/settings/models" class="history-link">{{ $t('nav.modelSettings') }} <span class="arrow">→</span></router-link>
+        <router-link to="/settings" class="history-link">{{ $t('nav.modelSettings') }} <span class="arrow">→</span></router-link>
         <router-link to="/history" class="history-link">{{ $t('nav.history') }} <span class="arrow">→</span></router-link>
         <LanguageSwitcher />
         <a href="https://github.com/666ghj/MiroFish" target="_blank" class="github-link">

@@ -1,14 +1,44 @@
 services:
+  direct-oauth-gateway:
+    build:
+      context: .
+      dockerfile: direct_gateway/Dockerfile
+    container_name: mirofish-direct-oauth-gateway
+    env_file:
+      - .env
+    environment:
+      DIRECT_GATEWAY_TOKEN: ${DIRECT_GATEWAY_TOKEN:-mirofish-local-only}
+    expose:
+      - "8090"
+    volumes:
+      - direct_oauth_credentials:/var/lib/direct-oauth
+    healthcheck:
+      test: ["CMD", ".venv/bin/python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8090/health', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    restart: unless-stopped
+
   mirofish:
-    image: ghcr.io/666ghj/mirofish:latest
-    # 加速镜像（如拉取缓慢可替换上方地址）
-    # image: ghcr.nju.edu.cn/666ghj/mirofish:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
     container_name: mirofish
     env_file:
       - .env
+    environment:
+      DIRECT_GATEWAY_TOKEN: ${DIRECT_GATEWAY_TOKEN:-mirofish-local-only}
+      DIRECT_OAUTH_GATEWAY_URL: http://direct-oauth-gateway:8090
     ports:
       - "3000:3000"
       - "5001:5001"
     restart: unless-stopped
+    depends_on:
+      direct-oauth-gateway:
+        condition: service_healthy
     volumes:
       - ./backend/uploads:/app/backend/uploads
+
+volumes:
+  direct_oauth_credentials:

@@ -15,6 +15,7 @@ dependencies = [
 
     # LLM 相关
     "openai>=1.0.0",
+    "anthropic>=0.75.0,<1",
     "cryptography>=46.0.0",
 
     # Zep Cloud
@@ -29,25 +30,24 @@ dependencies = [
     # 工具库
     "python-dotenv>=1.0.0",
     "pydantic>=2.0.0",
+
+    # Graphiti 与 OASIS 统一使用同一 Neo4j Python Driver
+    "neo4j==5.26.0",
 ]
 
 [project.optional-dependencies]
 # Graphiti 本地后端 (替代 Zep Cloud)
 # 安装: uv sync --extra graphiti
 # 启用: ZEP_BACKEND=graphiti
-# 注意: 与 oasis 依赖冲突 (neo4j 版本不兼容)
 graphiti = [
     "graphiti-core>=0.25.0,<0.26.0",
-    # graphiti-core 需要 neo4j>=5.26.0
 ]
 
 # OASIS 社交媒体模拟
 # 安装: uv sync --extra oasis
-# 注意: 与 graphiti 依赖冲突 (neo4j 版本不兼容)
 oasis = [
     "camel-oasis==0.2.5",
     "camel-ai==0.2.78",
-    # camel-oasis 需要 neo4j==5.23.0
 ]
 
 dev = [
@@ -67,11 +67,9 @@ dev = [
 ]
 
 [tool.uv]
-conflicts = [
-    [
-        { extra = "graphiti" },
-        { extra = "oasis" },
-    ],
+override-dependencies = [
+    # camel-oasis 0.2.5 锁定 5.23.0；同一主版本内 API 兼容，统一覆盖为 5.26.0。
+    "neo4j==5.26.0",
 ]
 
 [tool.hatch.build.targets.wheel]

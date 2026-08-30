@@ -263,9 +263,11 @@ class GraphitiClient(ZepClientAdapter):
         - 否则使用 LLM_MODEL_NAME（与 MiroFish 现有配置保持一致）
         """
         from graphiti_core.llm_client.config import LLMConfig
-        from graphiti_core.llm_client.openai_generic_client import OpenAIGenericClient
+        from types import SimpleNamespace
 
         from .model_router import ModelRouter
+        from .graphiti_protocol_client import GraphitiProtocolClient
+        from .protocols.factory import create_text_client
         from ..models.model_config import ModelRole
         resolved = ModelRouter().resolve(ModelRole.HIGH_THROUGHPUT)
         api_key = resolved.get('api_key') or os.environ.get('OPENAI_API_KEY')
@@ -284,15 +286,12 @@ class GraphitiClient(ZepClientAdapter):
             temperature=temperature,
             max_tokens=max_tokens,
         )
-        if base_url and 'api.deepseek.com' in base_url.lower():
-            from .deepseek_graphiti_client import DeepSeekGraphitiClient
-
-            return DeepSeekGraphitiClient(config=config)
-        if base_url and any(indicator in base_url.lower() for indicator in ('host.docker.internal:1234', 'localhost:1234', '127.0.0.1:1234')):
-            from .lmstudio_graphiti_client import LMStudioGraphitiClient
-
-            return LMStudioGraphitiClient(config=config, max_tokens=max_tokens)
-        return OpenAIGenericClient(config=config)
+        connection = SimpleNamespace(
+            protocol=resolved.get('protocol', 'openai_chat_completions'),
+            base_url=base_url,
+        )
+        text_client = create_text_client(connection, api_key or '')
+        return GraphitiProtocolClient(config=config, text_client=text_client)
 
     def _build_default_embedder(self) -> Any:
         """

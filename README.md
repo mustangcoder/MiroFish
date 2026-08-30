@@ -117,7 +117,7 @@ cp .env.example .env
 
 #### LLM API 配置（必需）
 
-支持 OpenAI SDK 格式的任意 LLM。推荐使用阿里百炼平台 qwen-plus 模型。
+支持 OpenAI Responses、OpenAI Chat Completions 和 Anthropic Messages 三种文本协议。推荐使用阿里百炼平台 qwen-plus 模型时选择 `openai_chat_completions`。
 
 > 注意：模拟消耗较大，建议先进行小于 40 轮的模拟尝试。
 
@@ -125,11 +125,14 @@ cp .env.example .env
 LLM_API_KEY=your_api_key
 LLM_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
 LLM_MODEL_NAME=qwen-plus
+LLM_PROTOCOL=openai_chat_completions
 ```
 
-#### Zep 后端选择
+配置中心会将模型厂商、接口协议和认证方式分别保存。一个 Provider 连接可以启用多个协议：系统会自动探测，用户也可以手动修正。三个模型职责分别选择 Provider、协议和具体模型，因此同一个 LM Studio 连接可以同时承担文本生成与 Embedding。可选协议值为 `openai_responses`、`openai_chat_completions`、`anthropic_messages` 和 `openai_embeddings`。Docker 连接宿主机模型服务时请使用 `http://host.docker.internal:<port>/v1`。
 
-通过 `ZEP_BACKEND` 切换记忆后端模式：
+#### 知识图谱服务选择
+
+通过 `ZEP_BACKEND` 切换知识图谱的存储与检索方式：
 
 | 值 | 模式 | 说明 |
 |---|------|------|
@@ -157,6 +160,7 @@ NEO4J_PASSWORD=password
 
 # Graphiti 使用的 LLM 模型（推荐显式配置）
 GRAPHITI_LLM_MODEL=qwen3-max
+GRAPHITI_LLM_PROTOCOL=openai_chat_completions
 GRAPHITI_EMBEDDING_MODEL=text-embedding-v4
 ```
 

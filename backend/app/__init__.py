@@ -18,6 +18,11 @@ from .utils.logger import setup_logger, get_logger
 
 def create_app(config_class=Config):
     """Flask应用工厂函数"""
+    if config_class is Config:
+        from .services.memory_backend_config_service import MemoryBackendConfigService
+        memory_config_service = MemoryBackendConfigService()
+        memory_config_service.initialize_from_environment()
+        memory_config_service.apply_runtime_config()
     app = Flask(__name__)
     app.config.from_object(config_class)
     
@@ -57,7 +62,7 @@ def create_app(config_class=Config):
             body = request.get_json(silent=True)
             if isinstance(body, dict):
                 body = {
-                    key: "[REDACTED]" if key.lower() in {"api_key", "token", "secret"} else value
+                    key: "[REDACTED]" if key.lower() in {"api_key", "zep_api_key", "neo4j_password", "password", "token", "secret"} else value
                     for key, value in body.items()
                 }
             logger.debug(f"请求体: {body}")

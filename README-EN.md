@@ -117,7 +117,7 @@ Environment variables are organized into the following groups:
 
 #### LLM API Configuration (Required)
 
-Supports any LLM compatible with the OpenAI SDK format. We recommend the Alibaba Bailian Platform's qwen-plus model.
+Supports OpenAI Responses, OpenAI Chat Completions, and Anthropic Messages. For Alibaba Bailian qwen-plus, select `openai_chat_completions`.
 
 > Note: Simulations can be resource-intensive. Start with fewer than 40 rounds to get a feel for costs.
 
@@ -125,11 +125,14 @@ Supports any LLM compatible with the OpenAI SDK format. We recommend the Alibaba
 LLM_API_KEY=your_api_key
 LLM_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
 LLM_MODEL_NAME=qwen-plus
+LLM_PROTOCOL=openai_chat_completions
 ```
 
-#### Zep Backend Selection
+The configuration center stores model vendor, API protocol, and authentication separately. One provider connection can enable multiple automatically detected or manually corrected protocols. Each model role selects its provider, protocol, and concrete model, so one LM Studio connection can serve both text generation and Embedding. Supported values are `openai_responses`, `openai_chat_completions`, `anthropic_messages`, and `openai_embeddings`. From Docker, use `http://host.docker.internal:<port>/v1` for a model service running on the host.
 
-Use `ZEP_BACKEND` to switch between memory backend modes:
+#### Knowledge Graph Service Selection
+
+Use `ZEP_BACKEND` to select how the knowledge graph is stored and queried:
 
 | Value | Mode | Description |
 |-------|------|-------------|
@@ -157,6 +160,7 @@ NEO4J_PASSWORD=password
 
 # LLM models used by Graphiti (explicit configuration recommended)
 GRAPHITI_LLM_MODEL=qwen3-max
+GRAPHITI_LLM_PROTOCOL=openai_chat_completions
 GRAPHITI_EMBEDDING_MODEL=text-embedding-v4
 ```
 

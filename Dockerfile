@@ -10,15 +10,20 @@ COPY --from=ghcr.io/astral-sh/uv:0.9.26 /uv /uvx /bin/
 
 WORKDIR /app
 
+# 设置 uv 超时时间为 5 分钟（避免网络下载超时）
+ENV UV_HTTP_TIMEOUT=300
+
 # 先复制依赖描述文件以利用缓存
 COPY package.json package-lock.json ./
 COPY frontend/package.json frontend/package-lock.json ./frontend/
 COPY backend/pyproject.toml backend/uv.lock ./backend/
 
-# 安装依赖（Node + Python）
-RUN npm ci \
-  && npm ci --prefix frontend \
-  && cd backend && uv sync --frozen
+# 安装 Node 依赖
+RUN npm ci
+RUN npm ci --prefix frontend
+
+# 安装 Python 依赖（单独一层，避免前面步骤失败后重复下载）
+RUN cd backend && uv sync --frozen --extra graphiti --extra oasis
 
 # 复制项目源码
 COPY . .

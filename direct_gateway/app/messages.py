@@ -30,4 +30,17 @@ def build_responses_payload(request: dict[str, Any], model: str) -> dict[str, An
         if not isinstance(schema, dict):
             raise ValueError("json_schema response format requires a schema")
         payload["text"] = {"format": {"type": "json_schema", "name": details.get("name", "response"), "strict": True, "schema": normalize_output_schema(schema)}}
+    tools = request.get("tools")
+    if tools:
+        payload["tools"] = [
+            {
+                "type": "function",
+                "name": tool["function"]["name"],
+                "description": tool["function"].get("description", ""),
+                "parameters": tool["function"].get("parameters", {}),
+            }
+            if tool.get("type") == "function" and "function" in tool
+            else tool
+            for tool in tools
+        ]
     return payload

@@ -54,6 +54,10 @@ def _load_graphiti_client(monkeypatch):
     class FakeLLMConfig:
         def __init__(self, **kwargs):
             captured["llm"].update(kwargs)
+            self.model = kwargs.get("model")
+            self.small_model = kwargs.get("small_model")
+            self.temperature = kwargs.get("temperature", 0)
+            self.max_tokens = kwargs.get("max_tokens", 8192)
 
     class FakeOpenAIGenericClient:
         def __init__(self, config):
@@ -187,7 +191,7 @@ def test_llm_prefers_dedicated_graphiti_environment(monkeypatch):
     assert captured["llm"]["model"] == "gpt-5.6-luna"
 
 
-def test_deepseek_base_url_selects_compatible_client(monkeypatch):
+def test_deepseek_base_url_uses_protocol_bridge(monkeypatch):
     monkeypatch.setenv("OPENAI_API_KEY", "deepseek-key")
     monkeypatch.setenv("OPENAI_BASE_URL", "https://api.deepseek.com")
     monkeypatch.setenv("GRAPHITI_LLM_MODEL", "deepseek-v4-flash")
@@ -199,4 +203,4 @@ def test_deepseek_base_url_selects_compatible_client(monkeypatch):
 
     llm_client = client._build_default_llm_client()
 
-    assert type(llm_client).__name__ == "DeepSeekGraphitiClient"
+    assert type(llm_client).__name__ == "GraphitiProtocolClient"
