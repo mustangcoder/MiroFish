@@ -259,19 +259,32 @@ class ZepEntityReader:
         # 筛选符合条件的实体
         filtered_entities = []
         entity_types_found = set()
+        graphiti_generic_fallback = (
+            getattr(self, "_backend", "cloud") == "graphiti"
+            and bool(all_nodes)
+            and not any(
+                label not in ["Entity", "Node"]
+                for node in all_nodes
+                for label in node.get("labels", [])
+            )
+        )
 
         for node in all_nodes:
-            labels = node.get("labels", [])
+            labels = list(node.get("labels", []))
 
             # 筛选逻辑：Labels必须包含除"Entity"和"Node"之外的标签
             custom_labels = [l for l in labels if l not in ["Entity", "Node"]]
+
+            if graphiti_generic_fallback and not custom_labels:
+                custom_labels = ["GenericEntity"]
+                labels.append("GenericEntity")
 
             if not custom_labels:
                 # 只有默认标签，跳过
                 continue
 
             # 如果指定了预定义类型，检查是否匹配
-            if defined_entity_types:
+            if defined_entity_types and not graphiti_generic_fallback:
                 matching_labels = [l for l in custom_labels if l in defined_entity_types]
                 if not matching_labels:
                     continue

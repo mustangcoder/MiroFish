@@ -20,6 +20,24 @@ services:
       start_period: 20s
     restart: unless-stopped
 
+  hf-prefetch:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: mirofish-hf-prefetch
+    environment:
+      HF_HOME: /var/lib/mirofish/huggingface
+      HUGGINGFACE_HUB_CACHE: /var/lib/mirofish/huggingface/hub
+      HF_XET_CACHE: /var/lib/mirofish/huggingface/xet
+      TRANSFORMERS_CACHE: /var/lib/mirofish/huggingface/hub
+      HF_HUB_DISABLE_XET: "1"
+      HF_HUB_DOWNLOAD_TIMEOUT: 60
+      HF_REQUIRED_MODELS: Twitter/twhin-bert-base
+    command: ["timeout", "900", "uv", "run", "--project", "backend", "python", "backend/scripts/prefetch_huggingface.py", "Twitter/twhin-bert-base"]
+    volumes:
+      - huggingface_cache:/var/lib/mirofish/huggingface
+    restart: "on-failure:3"
+
   mirofish:
     build:
       context: .
@@ -30,6 +48,14 @@ services:
     environment:
       DIRECT_GATEWAY_TOKEN: ${DIRECT_GATEWAY_TOKEN:-mirofish-local-only}
       DIRECT_OAUTH_GATEWAY_URL: http://direct-oauth-gateway:8090
+      HF_HOME: /var/lib/mirofish/huggingface
+      HUGGINGFACE_HUB_CACHE: /var/lib/mirofish/huggingface/hub
+      HF_XET_CACHE: /var/lib/mirofish/huggingface/xet
+      TRANSFORMERS_CACHE: /var/lib/mirofish/huggingface/hub
+      HF_HUB_DISABLE_XET: "1"
+      HF_HUB_DOWNLOAD_TIMEOUT: 60
+      HF_REQUIRED_MODELS: Twitter/twhin-bert-base
+      HF_MODEL_DOWNLOAD_TIMEOUT_SECONDS: 900
     ports:
       - "3000:3000"
       - "5001:5001"
@@ -39,6 +65,8 @@ services:
         condition: service_healthy
     volumes:
       - ./backend/uploads:/app/backend/uploads
+      - huggingface_cache:/var/lib/mirofish/huggingface
 
 volumes:
   direct_oauth_credentials:
+  huggingface_cache:

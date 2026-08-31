@@ -146,6 +146,30 @@ def test_failed_ingestion_cannot_generate_a_report_after_restart(monkeypatch):
     assert "successfully completed" in body["error"]
 
 
+def test_waiting_command_environment_is_reportable_without_closing():
+    run_state = SimpleNamespace(
+        runner_status=RunnerStatus.RUNNING,
+        twitter_completed=True,
+        reddit_completed=True,
+        twitter_running=False,
+        reddit_running=False,
+    )
+
+    assert report_api._run_is_reportable(run_state) is True
+
+
+def test_active_platform_run_is_not_reportable():
+    run_state = SimpleNamespace(
+        runner_status=RunnerStatus.RUNNING,
+        twitter_completed=True,
+        reddit_completed=False,
+        twitter_running=False,
+        reddit_running=True,
+    )
+
+    assert report_api._run_is_reportable(run_state) is False
+
+
 def test_report_reader_lease_blocks_graph_start_and_delete(monkeypatch):
     simulation = SimpleNamespace(
         simulation_id="sim-1",

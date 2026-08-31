@@ -27,6 +27,7 @@ from ..utils.zep import (
 )
 from .zep_graph_memory_updater import ZepGraphMemoryManager
 from .simulation_ipc import SimulationIPCClient, CommandType, IPCResponse
+from .huggingface_model_cache import HuggingFaceModelCache
 
 logger = get_logger('mirofish.simulation_runner')
 
@@ -508,6 +509,11 @@ class SimulationRunner:
 
         # 启动模拟进程
         try:
+            if platform in {"twitter", "parallel"}:
+                logger.info("检查 Hugging Face 推荐模型缓存...")
+                HuggingFaceModelCache().ensure_ready()
+                logger.info("Hugging Face 推荐模型缓存已就绪")
+
             # 构建运行命令，使用完整路径
             # 新的日志结构：
             #   twitter/actions.jsonl - Twitter 动作日志

@@ -121,6 +121,8 @@ cp .env.example .env
 
 > 注意：模拟消耗较大，建议先进行小于 40 轮的模拟尝试。
 
+Docker 部署会将 Hugging Face 模型缓存持久化到 `huggingface_cache` 卷，并在独立的 `hf-prefetch` 服务中预下载 OASIS Twitter 推荐模型。推演启动前会再次检查缓存；下载超过 15 分钟会明确失败，而不会让任务无限停留在运行中。
+
 ```env
 LLM_API_KEY=your_api_key
 LLM_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1

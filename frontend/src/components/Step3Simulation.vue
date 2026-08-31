@@ -380,7 +380,7 @@ const resetAllState = () => {
 }
 
 // 启动模拟
-const doStartSimulation = async () => {
+const doStartSimulation = async (shouldForce = false) => {
   if (!props.simulationId) {
     addLog(t('log.errorMissingSimId'))
     return
@@ -398,7 +398,7 @@ const doStartSimulation = async () => {
     const params = {
       simulation_id: props.simulationId,
       platform: 'parallel',
-      force: true,  // 强制重新开始
+      force: shouldForce,
       enable_graph_memory_update: true  // 开启动态图谱更新
     }
 
@@ -434,6 +434,61 @@ const doStartSimulation = async () => {
     emit('update-status', 'error')
   } finally {
     isStarting.value = false
+  }
+}
+
+// 页面刷新或路由重进时优先恢复已有任务，避免误触发 force 重跑。
+const restoreExistingSimulation = async () => {
+  if (!props.simulationId) return
+
+  try {
+    const res = await getRunStatus(props.simulationId)
+    if (!res.success || !res.data) {
+      await doStartSimulation(false)
+      return
+    }
+
+    const data = res.data
+    runStatus.value = data
+    prevTwitterRound.value = data.twitter_current_round || 0
+    prevRedditRound.value = data.reddit_current_round || 0
+    await fetchRunStatusDetail()
+
+    if (data.runner_status === 'failed') {
+      phase.value = 2
+      startError.value = data.error || '模拟运行失败'
+      addLog(`✗ 模拟失败: ${startError.value}`)
+      emit('update-status', 'error')
+      return
+    }
+
+    const platformsCompleted = checkPlatformsCompleted(data)
+    if (platformsCompleted || ['completed', 'stopped'].includes(data.runner_status)) {
+      phase.value = 2
+      addLog(t('log.simCompleted'))
+      emit('update-status', 'completed')
+      return
+    }
+
+    if (['starting', 'running', 'paused', 'stopping'].includes(data.runner_status)) {
+      phase.value = 1
+      addLog(t('log.engineStarted'))
+      startStatusPolling()
+      startDetailPolling()
+      emit('update-status', 'processing')
+      return
+    }
+
+    await doStartSimulation(false)
+  } catch (err) {
+    // 没有历史运行状态时才创建首次运行。
+    if (err.response?.status === 404) {
+      await doStartSimulation(false)
+      return
+    }
+    startError.value = err.message
+    addLog(t('log.startException', { error: err.message }))
+    emit('update-status', 'error')
   }
 }
 
@@ -701,7 +756,7 @@ watch(() => props.systemLogs?.length, () => {
 onMounted(() => {
   addLog(t('log.step3Init'))
   if (props.simulationId) {
-    doStartSimulation()
+    restoreExistingSimulation()
   }
 })
 

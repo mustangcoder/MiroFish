@@ -161,8 +161,12 @@ class ModelConfigService:
         assignments = self.validate_draft(self.store.get_draft())
         untested = []
         for role, config in assignments.items():
-            latest = self.store.latest_test(config["connection_id"])
-            if not latest or latest["status"] != "passed":
+            connection = self.store.get_connection(config["connection_id"])
+            protocol = APIProtocol(config["protocol"])
+            protocol_state = next(item for item in connection.protocols if item.protocol == protocol)
+            latest = self.store.latest_test(config["connection_id"], protocol.value)
+            verified = protocol_state.verification_status.value == "passed"
+            if not verified and (not latest or latest["status"] != "passed"):
                 untested.append(role.value)
         if untested:
             raise ValueError("以下模型角色尚未通过连接测试: " + ", ".join(untested))

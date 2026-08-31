@@ -121,6 +121,8 @@ Supports OpenAI Responses, OpenAI Chat Completions, and Anthropic Messages. For 
 
 > Note: Simulations can be resource-intensive. Start with fewer than 40 rounds to get a feel for costs.
 
+Docker persists Hugging Face assets in the `huggingface_cache` volume and pre-downloads the OASIS Twitter recommender through the separate `hf-prefetch` service. Simulation startup verifies the cache again and fails clearly after a 15-minute download timeout instead of remaining indefinitely in the running state.
+
 ```env
 LLM_API_KEY=your_api_key
 LLM_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1

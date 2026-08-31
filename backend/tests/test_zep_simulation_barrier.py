@@ -1,5 +1,7 @@
 from types import SimpleNamespace
 import json
+import sys
+import types
 
 import pytest
 from flask import Flask
@@ -305,6 +307,11 @@ def test_monitor_start_failure_terminates_the_spawned_process(monkeypatch, tmp_p
     monkeypatch.setattr(SimulationRunner, "SCRIPTS_DIR", str(scripts_dir))
     monkeypatch.setattr(runner_module.subprocess, "Popen", lambda *_args, **_kwargs: Process())
     monkeypatch.setattr(runner_module.threading, "Thread", BrokenThread)
+    router_module = types.ModuleType("app.services.model_router")
+    router_module.ModelRouter = lambda: type(
+        "Router", (), {"build_simulation_environment": lambda self, project_id=None: {}}
+    )()
+    monkeypatch.setitem(sys.modules, "app.services.model_router", router_module)
     monkeypatch.setattr(
         SimulationRunner,
         "_terminate_process",

@@ -2542,8 +2542,15 @@ def interview_agents_batch():
             timeout=timeout
         )
 
+        if not result.get("success", False):
+            return jsonify({
+                "success": False,
+                "error": result.get("error") or "采访失败",
+                "data": result,
+            }), 422
+
         return jsonify({
-            "success": result.get("success", False),
+            "success": True,
             "data": result
         })
 

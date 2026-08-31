@@ -478,9 +478,15 @@ class ModelConfigStore:
         with self._connect() as connection:
             connection.execute("INSERT INTO model_test_runs VALUES (?, ?, ?, ?, ?, ?, ?)", (f"test_{uuid.uuid4().hex[:12]}", connection_id, test_type, status, latency_ms, error_code, now))
 
-    def latest_test(self, connection_id):
+    def latest_test(self, connection_id, test_type=None):
         with self._connect() as connection:
-            row = connection.execute("SELECT test_type,status,latency_ms,error_code,created_at FROM model_test_runs WHERE connection_id=? ORDER BY created_at DESC LIMIT 1", (connection_id,)).fetchone()
+            if test_type:
+                row = connection.execute(
+                    "SELECT test_type,status,latency_ms,error_code,created_at FROM model_test_runs WHERE connection_id=? AND test_type=? ORDER BY created_at DESC LIMIT 1",
+                    (connection_id, test_type),
+                ).fetchone()
+            else:
+                row = connection.execute("SELECT test_type,status,latency_ms,error_code,created_at FROM model_test_runs WHERE connection_id=? ORDER BY created_at DESC LIMIT 1", (connection_id,)).fetchone()
         return dict(row) if row else None
 
     def save_draft(self, assignments):

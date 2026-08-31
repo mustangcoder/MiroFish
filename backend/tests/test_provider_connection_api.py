@@ -182,3 +182,24 @@ def test_create_connection_accepts_multiple_protocol_states(tmp_path, monkeypatc
     assert {item["protocol"] for item in response.get_json()["data"]["protocols"]} == {
         "openai_chat_completions", "openai_embeddings",
     }
+
+
+def test_apply_accepts_detected_protocol_without_legacy_connection_test(tmp_path):
+    service = make_service(tmp_path)
+    item = service.store.create_connection(
+        "LM Studio", ProviderVendor.CUSTOM, APIProtocol.OPENAI_CHAT_COMPLETIONS,
+        AuthType.NONE, ModelCapability.TEXT_GENERATION, "http://model.internal/v1", "",
+    )
+    service.store.replace_connection_protocols(item.connection_id, [
+        {"protocol": "openai_chat_completions", "capability": "text_generation", "source": "detected", "verification_status": "passed"},
+        {"protocol": "openai_embeddings", "capability": "embedding", "source": "detected", "verification_status": "passed"},
+    ])
+    service.save_draft({
+        ModelRole.EMBEDDING: {"connection_id": item.connection_id, "protocol": "openai_embeddings", "model": "embed"},
+        ModelRole.HIGH_CAPABILITY: {"connection_id": item.connection_id, "protocol": "openai_chat_completions", "model": "text"},
+        ModelRole.HIGH_THROUGHPUT: {"connection_id": item.connection_id, "protocol": "openai_chat_completions", "model": "text"},
+    })
+
+    version = service.apply_draft()
+
+    assert version.assignments[ModelRole.EMBEDDING]["protocol"] == "openai_embeddings"

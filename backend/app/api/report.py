@@ -27,6 +27,27 @@ from ..utils.zep_lifecycle import (
 logger = get_logger('mirofish.api.report')
 
 
+# A completed platform loop may intentionally keep the process alive for
+# interview commands. That state is safe for reporting when no platform is
+# still running; graph-ingestion safety is checked separately via the updater.
+def _run_is_reportable(run_state):
+    if run_state is None:
+        return False
+    if run_state.runner_status in {RunnerStatus.COMPLETED, RunnerStatus.STOPPED}:
+        return True
+    if run_state.runner_status != RunnerStatus.RUNNING:
+        return False
+    any_completed = bool(
+        getattr(run_state, "twitter_completed", False)
+        or getattr(run_state, "reddit_completed", False)
+    )
+    any_running = bool(
+        getattr(run_state, "twitter_running", False)
+        or getattr(run_state, "reddit_running", False)
+    )
+    return any_completed and not any_running
+
+
 # ============== 报告生成接口 ==============
 
 @report_bp.route('/generate', methods=['POST'])
@@ -90,7 +111,9 @@ def generate_report():
             RunnerStatus.STOPPING,
         }
         if updater is not None or (
-            run_state is not None and run_state.runner_status in active_statuses
+            run_state is not None
+            and run_state.runner_status in active_statuses
+            and not _run_is_reportable(run_state)
         ):
             return jsonify({
                 "success": False,
@@ -100,14 +123,7 @@ def generate_report():
                 ),
                 "ingestion_pending": updater is not None,
             }), 409
-        successful_terminal_statuses = {
-            RunnerStatus.COMPLETED,
-            RunnerStatus.STOPPED,
-        }
-        if (
-            run_state is None
-            or run_state.runner_status not in successful_terminal_statuses
-        ):
+        if not _run_is_reportable(run_state):
             return jsonify({
                 "success": False,
                 "error": (
@@ -186,6 +202,7 @@ def generate_report():
             if refreshed_updater is not None or (
                 refreshed_run_state is not None
                 and refreshed_run_state.runner_status in active_statuses
+                and not _run_is_reportable(refreshed_run_state)
             ):
                 return jsonify({
                     "success": False,
@@ -195,11 +212,7 @@ def generate_report():
                     ),
                     "ingestion_pending": refreshed_updater is not None,
                 }), 409
-            if (
-                refreshed_run_state is None
-                or refreshed_run_state.runner_status
-                not in successful_terminal_statuses
-            ):
+            if not _run_is_reportable(refreshed_run_state):
                 return jsonify({
                     "success": False,
                     "error": (

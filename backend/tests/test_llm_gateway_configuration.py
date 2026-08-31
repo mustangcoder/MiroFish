@@ -39,6 +39,19 @@ def test_local_compose_runs_gateway_with_shared_internal_token():
     assert "condition: service_healthy" in compose
 
 
+def test_local_compose_persists_and_prefetches_huggingface_models():
+    path = Path(__file__).resolve().parents[2] / "docker-compose.yml"
+    compose = path.read_text()
+
+    assert "hf-prefetch:" in compose
+    assert "huggingface_cache:/var/lib/mirofish/huggingface" in compose
+    assert "HF_HOME: /var/lib/mirofish/huggingface" in compose
+    assert "HF_HUB_DISABLE_XET: \"1\"" in compose
+    assert "HF_MODEL_DOWNLOAD_TIMEOUT_SECONDS: 900" in compose
+    assert "TRANSFORMERS_CACHE: /var/lib/mirofish/huggingface/hub" in compose
+    assert 'command: ["timeout", "900"' in compose
+
+
 def test_graphiti_operation_timeout_supports_long_running_builds():
     root = Path(__file__).resolve().parents[2]
     values = _read_env_template()

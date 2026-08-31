@@ -82,6 +82,18 @@ def _load_graphiti_client(monkeypatch):
         sys.modules, "app.services.deepseek_graphiti_client", deepseek_module
     )
 
+    bridge_module = types.ModuleType("app.services.graphiti_protocol_client")
+
+    class GraphitiProtocolClient:
+        def __init__(self, config, text_client):
+            self.config = config
+            self.text_client = text_client
+
+    bridge_module.GraphitiProtocolClient = GraphitiProtocolClient
+    monkeypatch.setitem(
+        sys.modules, "app.services.graphiti_protocol_client", bridge_module
+    )
+
     module_name = "app.services.zep_graphiti_impl"
     module_spec = importlib.util.spec_from_file_location(
         module_name, backend_dir / "app" / "services" / "zep_graphiti_impl.py"
@@ -89,6 +101,28 @@ def _load_graphiti_client(monkeypatch):
     module = importlib.util.module_from_spec(module_spec)
     monkeypatch.setitem(sys.modules, module_name, module)
     module_spec.loader.exec_module(module)
+
+    class EnvironmentRouter:
+        def resolve(self, role, project_id=None):
+            import os
+
+            if getattr(role, "value", role) == "embedding":
+                return {
+                    "api_key": os.environ.get("GRAPHITI_EMBEDDING_API_KEY") or os.environ.get("OPENAI_API_KEY", ""),
+                    "base_url": os.environ.get("GRAPHITI_EMBEDDING_BASE_URL") or os.environ.get("OPENAI_BASE_URL", ""),
+                    "model": os.environ.get("GRAPHITI_EMBEDDING_MODEL", ""),
+                    "protocol": "openai_embeddings",
+                }
+            return {
+                "api_key": os.environ.get("GRAPHITI_LLM_API_KEY") or os.environ.get("OPENAI_API_KEY", ""),
+                "base_url": os.environ.get("GRAPHITI_LLM_BASE_URL") or os.environ.get("OPENAI_BASE_URL", ""),
+                "model": os.environ.get("GRAPHITI_LLM_MODEL") or os.environ.get("LLM_MODEL_NAME", ""),
+                "protocol": os.environ.get("GRAPHITI_LLM_PROTOCOL", "openai_chat_completions"),
+            }
+
+    router_module = types.ModuleType("app.services.model_router")
+    router_module.ModelRouter = EnvironmentRouter
+    monkeypatch.setitem(sys.modules, "app.services.model_router", router_module)
     return module.GraphitiClient, captured
 
 
