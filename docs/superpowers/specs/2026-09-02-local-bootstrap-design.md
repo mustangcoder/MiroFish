@@ -17,7 +17,7 @@ npm run docker:up
 - 自动创建缺失的 `.env`。
 - 统一组合主 Compose 文件和本地 Neo4j Compose 文件。
 - 启动 Neo4j 与 Direct OAuth Gateway，并等待健康检查。
-- 通过一次性初始化容器创建和迁移 `mirofish.db`。
+- 通过一次性初始化容器创建和迁移 `mirofishplus.db`。
 - 初始化模型配置、任务历史、图谱服务配置和环境准备检查点所需表。
 - 幂等导入旧 `model-config/models.db` 与 `tasks/tasks.db`，保留源文件。
 - 初始化环境变量提供的必要默认配置。
@@ -71,7 +71,7 @@ uv run --project backend python backend/scripts/bootstrap_local.py
 
 该命令只执行初始化，不启动 Flask：
 
-1. 创建 `backend/uploads/mirofish.db` 的父目录。
+1. 创建 `backend/uploads/mirofishplus.db` 的父目录。
 2. 创建 ModelConfigStore 和 TaskStore 的当前表结构。
 3. 执行统一数据库的旧库幂等迁移。
 4. 再次运行模型表的版本迁移，确保导入的旧记录升级到当前结构。
@@ -138,6 +138,6 @@ Gateway healthy┘
 1. 在保留现有数据的前提下执行 `npm run docker:up`。
 2. 确认 Neo4j、Gateway、MiroFish 均健康。
 3. 确认 `bootstrap` 以状态码 `0` 完成。
-4. 确认 `mirofish.db` 包含模型、任务和准备检查点表。
+4. 确认 `mirofishplus.db` 包含模型、任务和准备检查点表。
 5. 再次执行同一命令，确认配置及数据行数保持一致。
 6. 确认前端 `http://localhost:3000`、后端 `/health` 和 Neo4j Browser 可访问。

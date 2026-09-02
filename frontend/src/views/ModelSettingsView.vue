@@ -1,6 +1,6 @@
 <template>
   <div class="settings-page">
-    <header><router-link to="/" class="brand">MIROFISH</router-link><router-link to="/">返回首页 ↗</router-link></header>
+    <header><router-link to="/" class="brand">MIROFISHPLUS</router-link><router-link to="/">返回首页 ↗</router-link></header>
     <main>
       <div class="heading"><div><p>SETTINGS / CONFIGURATION CENTER</p><h1>配置中心</h1></div><button :disabled="saving" @click="apply">应用配置</button></div>
       <div v-if="notice" class="notice" :data-error="noticeError">{{ notice }}</div>

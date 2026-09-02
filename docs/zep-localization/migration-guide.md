@@ -92,7 +92,7 @@ version: '3.8'
 services:
   neo4j:
     image: neo4j:5.26
-    container_name: mirofish-neo4j
+    container_name: mirofishplus-neo4j
     ports:
       - "7474:7474"  # HTTP (Browser)
       - "7687:7687"  # Bolt (Driver)

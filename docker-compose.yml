@@ -1,11 +1,11 @@
-name: mirofish
+name: mirofishplus
 
 services:
   direct-oauth-gateway:
     build:
       context: .
       dockerfile: direct_gateway/Dockerfile
-    container_name: mirofish-direct-oauth-gateway
+    container_name: mirofishplus-direct-oauth-gateway
     env_file:
       - .env
     environment:
@@ -27,7 +27,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: mirofish-hf-prefetch
+    container_name: mirofishplus-hf-prefetch
     environment:
       HF_HOME: /var/lib/mirofish/huggingface
       HUGGINGFACE_HUB_CACHE: /var/lib/mirofish/huggingface/hub
@@ -45,21 +45,21 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: mirofish-local:latest
-    container_name: mirofish-bootstrap
+    image: mirofishplus-local:latest
+    container_name: mirofishplus-bootstrap
     env_file:
       - .env
     command: ["uv", "run", "--project", "backend", "python", "backend/scripts/bootstrap_local.py"]
     restart: "no"
     volumes:
-      - ./backend/uploads:/app/backend/uploads
+      - ${MIROFISH_UPLOADS_DIR:-./backend/uploads}:/app/backend/uploads
 
   mirofish:
     build:
       context: .
       dockerfile: Dockerfile
-    image: mirofish-local:latest
-    container_name: mirofish
+    image: mirofishplus-local:latest
+    container_name: mirofishplus
     env_file:
       - .env
     environment:
@@ -83,7 +83,7 @@ services:
       bootstrap:
         condition: service_completed_successfully
     volumes:
-      - ./backend/uploads:/app/backend/uploads
+      - ${MIROFISH_UPLOADS_DIR:-./backend/uploads}:/app/backend/uploads
       - huggingface_cache:/var/lib/mirofish/huggingface
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5001/health', timeout=3)"]
@@ -94,4 +94,6 @@ services:
 
 volumes:
   direct_oauth_credentials:
+    name: mirofishplus_direct_oauth_credentials
   huggingface_cache:
+    name: mirofishplus_huggingface_cache

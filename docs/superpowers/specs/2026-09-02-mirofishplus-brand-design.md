@@ -4,7 +4,7 @@
 
 将本项目的对外品牌从 `MiroFish-Local` 统一为 `MiroFishPlus`，体现其能力已经覆盖本地图谱、模型协议、OAuth、持久化恢复和可靠性增强，而不只是“本地版”。同时将本项目独有的统一 SQLite 数据库从 `mirofish.db` 改为 `mirofishplus.db`，并自动、无损兼容现有安装。
 
-本项目继续明确为 [官方 MiroFish](https://github.com/666ghj/MiroFish) 的社区增强分支，不代表官方维护团队。
+本项目明确同时基于 [官方 MiroFish](https://github.com/666ghj/MiroFish) 与社区项目 [tt-a1i/MiroFish-local](https://github.com/tt-a1i/MiroFish-local)，不代表任一上游维护团队。Graphiti + Neo4j、本地/云端双模式和本地部署基础归功于 MiroFish-local；MiroFishPlus 在此基础上继续实现模型协议、OAuth、持久化恢复、本体类型和可靠性增强。
 
 ## 官方数据库边界
 
@@ -80,6 +80,8 @@ Docker 对外名称全部改为 MiroFishPlus：
 | Hugging Face 缓存卷 | `mirofish_huggingface_cache` | `mirofishplus_huggingface_cache` |
 | Neo4j 数据卷 | `mirofish_neo4j_data` | `mirofishplus_neo4j_data` |
 | Neo4j 日志卷 | `mirofish_neo4j_logs` | `mirofishplus_neo4j_logs` |
+| 生产上传卷 | `mirofish_mirofish_uploads` | `mirofishplus_uploads` |
+| 生产 Embedding 缓存卷 | `mirofish_embedding_cache` | `mirofishplus_embedding_cache` |
 
 Docker 没有直接重命名 Volume 的操作。`npm run docker:up` 在启动新项目之前执行一次兼容迁移：
 

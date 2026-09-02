@@ -15,7 +15,7 @@
 - 唯一推荐入口为 `npm run docker:up`。
 - 缺失 `.env` 时从 `.env.example` 创建，已有 `.env` 不覆盖。
 - 所有初始化必须幂等，不删除数据库、上传文件或 Docker 卷。
-- MiroFish 自有 SQLite 数据继续使用 `backend/uploads/mirofish.db`。
+- MiroFish 自有 SQLite 数据继续使用 `backend/uploads/mirofishplus.db`。
 - OASIS Twitter/Reddit SQLite 数据库保持独立。
 - Neo4j 固定使用项目现有版本 `5.26.0`。
 - 初始化失败时主应用不得启动，并保留诊断现场。
@@ -187,7 +187,7 @@ Document:
 npm run docker:up
 ```
 
-Explain `.env` auto-creation, `mirofish.db` initialization, service URLs, idempotency, and that existing data is never reset.
+Explain `.env` auto-creation, `mirofishplus.db` initialization, service URLs, idempotency, and that existing data is never reset.
 
 - [ ] **Step 2: Run all automated verification**
 
@@ -211,4 +211,4 @@ docker compose -f docker-compose.yml -f docker-compose.local.yml ps
 curl --fail http://localhost:5001/health
 ```
 
-Query `backend/uploads/mirofish.db` before and after the second run and confirm configuration/task row counts do not increase merely because startup repeated. Do not remove volumes or files after verification.
+Query `backend/uploads/mirofishplus.db` before and after the second run and confirm configuration/task row counts do not increase merely because startup repeated. Do not remove volumes or files after verification.

@@ -1,7 +1,7 @@
 <template>
   <div class="history-page">
     <header class="topbar">
-      <router-link to="/" class="brand">MIROFISH</router-link>
+      <router-link to="/" class="brand">MIROFISHPLUS</router-link>
       <router-link to="/" class="back-link">返回首页 ↗</router-link>
     </header>
 

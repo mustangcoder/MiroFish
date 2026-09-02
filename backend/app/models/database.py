@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import sqlite3
+import os
+import tempfile
 import threading
 from pathlib import Path
 
@@ -24,7 +26,75 @@ TASK_TABLES = ("task_history",)
 
 
 def unified_database_path() -> Path:
-    return Path(Config.UPLOAD_FOLDER) / "mirofish.db"
+    return Path(Config.UPLOAD_FOLDER) / "mirofishplus.db"
+
+
+def legacy_unified_database_path(destination: Path | None = None) -> Path:
+    destination = Path(destination or unified_database_path())
+    return destination.parent / "mirofish.db"
+
+
+def _user_table_counts(connection: sqlite3.Connection) -> dict[str, int]:
+    tables = [
+        row[0]
+        for row in connection.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name"
+        )
+    ]
+    return {
+        table: connection.execute(f'SELECT COUNT(*) FROM "{table}"').fetchone()[0]
+        for table in tables
+    }
+
+
+def migrate_legacy_unified_database(
+    destination: str | Path | None = None,
+    source: str | Path | None = None,
+) -> bool:
+    """首次启动时一致性复制旧统一库，保留源文件。"""
+    destination = Path(destination or unified_database_path())
+    source = Path(source or legacy_unified_database_path(destination))
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    with _migration_lock:
+        if destination.exists() or not source.exists() or source.resolve() == destination.resolve():
+            return False
+        descriptor, temporary_name = tempfile.mkstemp(
+            prefix=".mirofishplus-", suffix=".db", dir=destination.parent
+        )
+        os.close(descriptor)
+        temporary = Path(temporary_name)
+        try:
+            with sqlite3.connect(source, timeout=5) as source_connection:
+                source_connection.execute("PRAGMA busy_timeout=5000")
+                source_counts = _user_table_counts(source_connection)
+                with sqlite3.connect(temporary, timeout=5) as target_connection:
+                    source_connection.backup(target_connection)
+                    target_connection.commit()
+                    journal_mode = target_connection.execute(
+                        "PRAGMA journal_mode=DELETE"
+                    ).fetchone()[0]
+                    if str(journal_mode).lower() != "delete":
+                        raise RuntimeError("SQLite backup could not leave WAL mode")
+                    integrity = target_connection.execute("PRAGMA integrity_check").fetchone()[0]
+                    if integrity != "ok":
+                        raise RuntimeError(f"SQLite backup integrity check failed: {integrity}")
+                    target_counts = _user_table_counts(target_connection)
+                    if target_counts != source_counts:
+                        raise RuntimeError("SQLite backup row count mismatch")
+                    target_connection.execute(
+                        "CREATE TABLE IF NOT EXISTS app_schema_migrations (migration_key TEXT PRIMARY KEY, applied_at TEXT NOT NULL)"
+                    )
+                    target_connection.execute(
+                        "INSERT OR IGNORE INTO app_schema_migrations(migration_key, applied_at) VALUES ('legacy_mirofish_database_v1', datetime('now'))"
+                    )
+                    target_connection.commit()
+            os.replace(temporary, destination)
+        except Exception:
+            temporary.unlink(missing_ok=True)
+            Path(f"{temporary}-wal").unlink(missing_ok=True)
+            Path(f"{temporary}-shm").unlink(missing_ok=True)
+            raise
+        return True
 
 
 def _table_exists(connection, schema: str, table: str) -> bool:
