@@ -184,7 +184,29 @@ LLM_BOOST_BASE_URL=https://another-api-provider.com/v1
 LLM_BOOST_MODEL_NAME=gpt-4o-mini
 ```
 
-### 2. 启动依赖服务（可选，仅本地模式）
+### 2. 一键 Docker 启动（推荐）
+
+确保 Docker Desktop 已启动，然后在项目根目录执行：
+
+```bash
+npm run docker:up
+```
+
+该命令会自动创建缺失的 `.env`、启动 Neo4j 5.26、Direct OAuth Gateway，初始化或迁移 `backend/uploads/mirofish.db`，最后启动 MiroFish 并等待健康检查。重复执行不会重置模型配置、任务记录、环境准备检查点、上传文件或 Docker 卷。
+
+启动完成后可访问：
+
+- 前端：`http://localhost:3000`
+- 后端健康检查：`http://localhost:5001/health`
+- Neo4j Browser：`http://localhost:7474`
+
+启动失败时脚本会保留现场并打印诊断命令。也可以手动查看日志：
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.local.yml logs --tail=200
+```
+
+### 3. 手动启动依赖服务（可选）
 
 如果选择 `ZEP_BACKEND=graphiti`，需要先启动 Neo4j 数据库：
 
@@ -198,7 +220,7 @@ docker-compose -f docker-compose.local.yml ps
 # Neo4j Browser 可通过 http://localhost:7474 访问（用户名: neo4j, 密码: password）
 ```
 
-### 3. 安装依赖
+### 4. 安装依赖
 
 ```bash
 # 一键安装所有依赖（根目录 + 前端 + 后端）
@@ -215,7 +237,7 @@ npm run setup
 npm run setup:backend
 ```
 
-### 4. 启动服务
+### 5. 启动非 Docker 开发服务
 
 ```bash
 # 同时启动前后端（在项目根目录执行）

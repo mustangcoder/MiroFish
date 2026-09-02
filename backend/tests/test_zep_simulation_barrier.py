@@ -303,6 +303,11 @@ def test_monitor_start_failure_terminates_the_spawned_process(monkeypatch, tmp_p
             raise RuntimeError("monitor failed")
 
     terminated = []
+    monkeypatch.setattr(
+        runner_module.HuggingFaceModelCache,
+        "ensure_ready",
+        lambda _self: None,
+    )
     monkeypatch.setattr(SimulationRunner, "RUN_STATE_DIR", str(tmp_path / "runs"))
     monkeypatch.setattr(SimulationRunner, "SCRIPTS_DIR", str(scripts_dir))
     monkeypatch.setattr(runner_module.subprocess, "Popen", lambda *_args, **_kwargs: Process())
