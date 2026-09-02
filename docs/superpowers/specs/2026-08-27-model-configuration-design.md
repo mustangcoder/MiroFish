@@ -178,7 +178,7 @@ API Key 使用应用主密钥加密后存入 SQLite。主密钥保存于：
 
 该机制防止数据库文件单独泄露后直接暴露凭据，不承诺抵御完整主机控制。
 
-ChatGPT OAuth Token 继续由 `codex-gateway` 或 `direct-oauth-gateway` 管理。MiroFish 只保存内部 Gateway 地址、内部认证凭据和脱敏账户状态，不读取 OAuth access token 或 refresh token。
+ChatGPT OAuth Token 继续由 `direct-oauth-gateway` 管理。MiroFish 只保存内部 Gateway 地址、内部认证凭据和脱敏账户状态，不读取 OAuth access token 或 refresh token。
 
 ## 运行时架构
 

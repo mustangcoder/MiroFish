@@ -8,9 +8,9 @@
 
 *A multi-agent swarm intelligence engine for public opinion, market sentiment, and social dynamics, with local graph, configuration, and task storage.*
 
-[![GitHub Stars](https://img.shields.io/github/stars/mustangcoder/MiroFish?style=flat-square)](https://github.com/mustangcoder/MiroFish/stargazers)
-[![GitHub Forks](https://img.shields.io/github/forks/mustangcoder/MiroFish?style=flat-square)](https://github.com/mustangcoder/MiroFish/network)
-[![GitHub License](https://img.shields.io/github/license/mustangcoder/MiroFish?style=flat-square)](https://github.com/mustangcoder/MiroFish/blob/main/LICENSE)
+[![GitHub Stars](https://img.shields.io/github/stars/mustangcoder/MiroFishPlus?style=flat-square)](https://github.com/mustangcoder/MiroFishPlus/stargazers)
+[![GitHub Forks](https://img.shields.io/github/forks/mustangcoder/MiroFishPlus?style=flat-square)](https://github.com/mustangcoder/MiroFishPlus/network)
+[![GitHub License](https://img.shields.io/github/license/mustangcoder/MiroFishPlus?style=flat-square)](https://github.com/mustangcoder/MiroFishPlus/blob/main/LICENSE)
 [![Docker](https://img.shields.io/badge/Docker-Supported-2496ED?style=flat-square&logo=docker&logoColor=white)](https://www.docker.com/)
 
 [English](./README-EN.md) | [中文文档](./README.md)
@@ -62,8 +62,8 @@ This repository is based on both [666ghj/MiroFish](https://github.com/666ghj/Mir
 ## ⚡ 3-Minute Quick Demo
 
 ```bash
-git clone https://github.com/mustangcoder/MiroFish.git
-cd MiroFish
+git clone https://github.com/mustangcoder/MiroFishPlus.git
+cd MiroFishPlus
 cp .env.example .env           # Edit .env and add your LLM_API_KEY
 npm run setup:all              # Install dependencies
 npm run backend &              # Start backend
@@ -334,10 +334,10 @@ On top of that foundation, MiroFishPlus adds Configuration Center, multiple mode
 
 ## 📈 Project Statistics
 
-<a href="https://www.star-history.com/#mustangcoder/MiroFish&type=date&legend=top-left">
+<a href="https://www.star-history.com/#mustangcoder/MiroFishPlus&type=date&legend=top-left">
  <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=mustangcoder/MiroFish&type=date&theme=dark&legend=top-left" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=mustangcoder/MiroFish&type=date&legend=top-left" />
-   <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=mustangcoder/MiroFish&type=date&legend=top-left" />
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=mustangcoder/MiroFishPlus&type=date&theme=dark&legend=top-left" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=mustangcoder/MiroFishPlus&type=date&legend=top-left" />
+   <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=mustangcoder/MiroFishPlus&type=date&legend=top-left" />
  </picture>
 </a>

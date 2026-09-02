@@ -210,7 +210,7 @@ def test_llm_ignores_dedicated_embedding_environment(monkeypatch):
 
 def test_llm_prefers_dedicated_graphiti_environment(monkeypatch):
     monkeypatch.setenv("OPENAI_API_KEY", "official-key")
-    monkeypatch.setenv("OPENAI_BASE_URL", "http://codex-gateway:8080/v1")
+    monkeypatch.setenv("OPENAI_BASE_URL", "http://model-gateway.internal:8080/v1")
     monkeypatch.setenv("LLM_MODEL_NAME", "official-model")
     monkeypatch.setenv("GRAPHITI_LLM_API_KEY", "direct-key")
     monkeypatch.setenv("GRAPHITI_LLM_BASE_URL", "http://direct-oauth-gateway:8090/v1")
