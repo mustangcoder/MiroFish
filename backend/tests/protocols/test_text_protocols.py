@@ -19,6 +19,7 @@ def request():
         ],
         temperature=0.2,
         max_output_tokens=128,
+        truncation="auto",
     )
 
 
@@ -39,6 +40,7 @@ def test_responses_adapter_uses_output_text_and_request_id():
     assert result.request_id == "req_responses"
     assert calls[0]["input"] == request().messages
     assert calls[0]["max_output_tokens"] == 128
+    assert calls[0]["truncation"] == "auto"
 
 
 def test_chat_adapter_extracts_message_text():

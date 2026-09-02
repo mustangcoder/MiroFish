@@ -22,6 +22,15 @@ from ..utils.logger import get_logger
 logger = get_logger('mirofish.simulation_ipc')
 
 
+def _process_start_time(pid: int) -> Optional[str]:
+    """读取 Linux 进程启动标识，避免 PID 被复用后误判存活。"""
+    try:
+        with open(f"/proc/{pid}/stat", "r", encoding="utf-8") as handle:
+            return handle.read().split()[21]
+    except (OSError, IndexError):
+        return None
+
+
 class CommandType(str, Enum):
     """命令类型"""
     INTERVIEW = "interview"           # 单个Agent采访
@@ -280,7 +289,31 @@ class SimulationIPCClient:
         try:
             with open(status_file, 'r', encoding='utf-8') as f:
                 status = json.load(f)
-            return status.get("status") == "alive"
+            if status.get("status") != "alive":
+                return False
+            pid = status.get("pid")
+            if not isinstance(pid, int) or pid <= 0:
+                alive = False
+            else:
+                try:
+                    os.kill(pid, 0)
+                    recorded_start = status.get("process_start_time")
+                    current_start = _process_start_time(pid)
+                    alive = not recorded_start or not current_start or recorded_start == current_start
+                except OSError:
+                    alive = False
+            if alive:
+                return True
+            status.update({
+                "status": "stale",
+                "twitter_available": False,
+                "reddit_available": False,
+                "checked_at": datetime.now().isoformat(),
+                "stale_reason": "owner_process_not_running",
+            })
+            with open(status_file, 'w', encoding='utf-8') as f:
+                json.dump(status, f, ensure_ascii=False, indent=2)
+            return False
         except (json.JSONDecodeError, OSError):
             return False
 
@@ -326,7 +359,9 @@ class SimulationIPCServer:
         with open(status_file, 'w', encoding='utf-8') as f:
             json.dump({
                 "status": status,
-                "timestamp": datetime.now().isoformat()
+                "timestamp": datetime.now().isoformat(),
+                "pid": os.getpid(),
+                "process_start_time": _process_start_time(os.getpid()),
             }, f, ensure_ascii=False, indent=2)
     
     def poll_commands(self) -> Optional[IPCCommand]:

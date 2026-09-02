@@ -14,6 +14,7 @@ from dataclasses import dataclass, field
 
 from ..config import Config
 from .task_store import TaskStore
+from .database import unified_database_path
 
 
 logger = logging.getLogger("mirofish.task_manager")
@@ -68,7 +69,7 @@ class TaskManager:
     
     _instance = None
     _lock = threading.Lock()
-    _store = TaskStore(os.path.join(Config.UPLOAD_FOLDER, "tasks", "tasks.db"))
+    _store = TaskStore(unified_database_path())
     
     def __new__(cls):
         """单例模式"""
@@ -86,7 +87,7 @@ class TaskManager:
     def configure_store(cls, path: Optional[str]) -> None:
         """配置持久化文件；测试可借此隔离数据。"""
         cls._store = TaskStore(
-            path or os.path.join(Config.UPLOAD_FOLDER, "tasks", "tasks.db")
+            path or unified_database_path()
         )
         if cls._instance is not None:
             cls._instance._load_from_store()

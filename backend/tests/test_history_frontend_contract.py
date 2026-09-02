@@ -43,11 +43,11 @@ def test_history_tasks_show_related_project_name_and_id():
     assert "task.metadata.project_id" in tasks
 
 
-def test_project_history_action_does_not_claim_to_resume_work():
+def test_project_history_action_resumes_latest_persisted_workflow():
     source = (ROOT / "frontend/src/components/HistoryProjectList.vue").read_text(encoding="utf-8")
 
-    assert "打开项目" in source
-    assert "继续项目" not in source
+    assert "继续最新进度" in source
+    assert "$emit('open', project)" in source
 
 
 def test_project_history_shows_collapsible_file_list():
@@ -58,3 +58,11 @@ def test_project_history_shows_collapsible_file_list():
     assert "展开全部" in source
     assert "收起文件" in source
     assert "暂无关联文件" in source
+
+
+def test_home_removes_legacy_simulation_history_module():
+    home = (ROOT / "frontend/src/views/Home.vue").read_text(encoding="utf-8")
+
+    assert "<HistoryDatabase" not in home
+    assert "import HistoryDatabase" not in home
+    assert 'to="/history"' in home

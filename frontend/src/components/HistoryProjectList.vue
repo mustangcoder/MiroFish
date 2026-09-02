@@ -31,7 +31,7 @@
         <div><dt>最近更新</dt><dd>{{ formatTime(project.updated_at || project.created_at) }}</dd></div>
       </dl>
       <div class="card-actions">
-        <button type="button" class="open-button" @click="$emit('open', project.project_id)">打开项目 <span aria-hidden="true">→</span></button>
+        <button type="button" class="open-button" @click="$emit('open', project)">继续最新进度 <span aria-hidden="true">→</span></button>
         <button type="button" class="secondary-button" @click="$emit('edit', project)">修改名称</button>
         <button type="button" class="danger-button" @click="$emit('delete', project)">彻底删除</button>
       </div>

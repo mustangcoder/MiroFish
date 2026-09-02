@@ -20,6 +20,19 @@ def test_model_settings_page_exposes_memory_backend_configuration():
     assert "saveMemoryBackend" in view
     assert "getMemoryBackend" in api
     assert "/api/settings/models/memory-backend/test" in api
+
+
+def test_model_settings_page_exposes_text_context_window_configuration():
+    root = Path(__file__).resolve().parents[2]
+    view = (root / "frontend/src/views/ModelSettingsView.vue").read_text(encoding="utf-8")
+    api = (root / "frontend/src/api/modelSettings.js").read_text(encoding="utf-8")
+    router = (root / "frontend/src/router/index.js").read_text(encoding="utf-8")
+    home = (root / "frontend/src/views/Home.vue").read_text(encoding="utf-8")
+
+    assert "最大上下文 Tokens" in view
+    assert "context_window_tokens" in view
+    assert "getModelMetadata" in view
+    assert "/api/settings/models/metadata" in api
     assert "path: '/settings'" in router
     assert "path: '/settings/models'" not in router
     assert 'to="/settings"' in home

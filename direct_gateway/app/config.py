@@ -20,6 +20,7 @@ class DirectConfig:
     models: tuple[str, ...] = ("gpt-5.6-luna", "gpt-5.6-terra", "gpt-5.6-sol")
     credentials_path: str = "/var/lib/direct-oauth/credentials.json"
     request_timeout_seconds: int = 600
+    max_concurrency: int = 8
 
     @classmethod
     def from_mapping(cls, values: Mapping[str, str]) -> "DirectConfig":
@@ -44,6 +45,7 @@ class DirectConfig:
             models=models,
             credentials_path=values.get("DIRECT_OAUTH_CREDENTIALS_PATH", cls.credentials_path),
             request_timeout_seconds=int(values.get("DIRECT_REQUEST_TIMEOUT_SECONDS", "600")),
+            max_concurrency=max(1, int(values.get("DIRECT_MAX_CONCURRENCY", "8"))),
         )
         allow_http = values.get("DIRECT_ALLOW_HTTP_FOR_TESTS") == "1"
         for url in (config.issuer, config.redirect_uri, config.codex_endpoint):

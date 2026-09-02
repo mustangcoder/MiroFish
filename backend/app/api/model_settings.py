@@ -18,6 +18,7 @@ from ..services.draft_connection_tester import DraftConnectionTester
 from ..services.memory_backend_config_service import MemoryBackendConfigService
 from ..models.model_config import ModelRole
 from ..services.provider_catalog import list_provider_specs, protocol_capability
+from ..services.model_metadata import known_context_window
 
 
 def _json(value):
@@ -37,6 +38,18 @@ def _memory_service():
     service = MemoryBackendConfigService()
     service.initialize_from_environment()
     return service
+
+
+@model_settings_bp.get('/metadata')
+def model_metadata():
+    model = request.args.get('model', '').strip()
+    return jsonify({
+        "success": True,
+        "data": {
+            "model": model,
+            "context_window_tokens": known_context_window(model),
+        },
+    })
 
 
 @model_settings_bp.get('/memory-backend')

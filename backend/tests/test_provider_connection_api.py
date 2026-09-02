@@ -149,8 +149,8 @@ def test_role_uses_selected_protocol_capability_from_multi_protocol_connection(t
     ])
     assignments = {
         ModelRole.EMBEDDING: {"connection_id": item.connection_id, "protocol": "openai_embeddings", "model": "embed"},
-        ModelRole.HIGH_CAPABILITY: {"connection_id": item.connection_id, "protocol": "openai_chat_completions", "model": "text"},
-        ModelRole.HIGH_THROUGHPUT: {"connection_id": item.connection_id, "protocol": "openai_chat_completions", "model": "text"},
+        ModelRole.HIGH_CAPABILITY: {"connection_id": item.connection_id, "protocol": "openai_chat_completions", "model": "text", "context_window_tokens": 128_000},
+        ModelRole.HIGH_THROUGHPUT: {"connection_id": item.connection_id, "protocol": "openai_chat_completions", "model": "text", "context_window_tokens": 128_000},
     }
 
     normalized = service.validate_draft(assignments)
@@ -196,8 +196,8 @@ def test_apply_accepts_detected_protocol_without_legacy_connection_test(tmp_path
     ])
     service.save_draft({
         ModelRole.EMBEDDING: {"connection_id": item.connection_id, "protocol": "openai_embeddings", "model": "embed"},
-        ModelRole.HIGH_CAPABILITY: {"connection_id": item.connection_id, "protocol": "openai_chat_completions", "model": "text"},
-        ModelRole.HIGH_THROUGHPUT: {"connection_id": item.connection_id, "protocol": "openai_chat_completions", "model": "text"},
+        ModelRole.HIGH_CAPABILITY: {"connection_id": item.connection_id, "protocol": "openai_chat_completions", "model": "text", "context_window_tokens": 128_000},
+        ModelRole.HIGH_THROUGHPUT: {"connection_id": item.connection_id, "protocol": "openai_chat_completions", "model": "text", "context_window_tokens": 128_000},
     })
 
     version = service.apply_draft()

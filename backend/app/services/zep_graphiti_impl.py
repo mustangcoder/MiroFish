@@ -10,7 +10,7 @@ MVP 范围：
 - 节点/边检索
 - 语义搜索
 
-Ontology 在 MVP 阶段先 no-op。
+Ontology 会编译为 Graphiti 的运行时 Pydantic 类型并用于实体/关系抽取。
 """
 
 import asyncio
@@ -28,6 +28,7 @@ from .zep_adapter import (
     SearchResult,
     EpisodeStatus,
 )
+from .graphiti_ontology import GraphitiOntologyBundle, compile_graphiti_ontology
 
 logger = logging.getLogger('mirofish.graphiti_client')
 
@@ -204,8 +205,8 @@ class GraphitiClient(ZepClientAdapter):
         # 记录创建的 graph_id（用于 group_id 映射）
         self._graph_metadata: Dict[str, Dict[str, Any]] = {}
 
-        # 存储 ontology 定义（MVP 阶段仅记录，不强制执行）
-        self._ontology_cache: Dict[str, Dict[str, Any]] = {}
+        # 存储已经编译的 Graphiti ontology 运行时模型
+        self._ontology_cache: Dict[str, GraphitiOntologyBundle] = {}
 
     def _ensure_initialized(self):
         """确保 Graphiti 已初始化"""
@@ -406,30 +407,28 @@ class GraphitiClient(ZepClientAdapter):
     def set_ontology(
         self,
         graph_ids: List[str],
-        entities: Optional[Dict[str, Any]] = None,
-        edges: Optional[Dict[str, Any]] = None
+        entities: Optional[List[Dict[str, Any]]] = None,
+        edges: Optional[List[Dict[str, Any]]] = None
     ) -> None:
-        """
-        设置图谱本体
-
-        MVP 说明：Graphiti 不支持与 Zep Cloud 完全相同的 ontology API。
-        这里仅缓存定义，可用于：
-        1. 添加 episode 时作为 prompt 提示
-        2. 后续对齐时做类型映射
-
-        Full parity 阶段可实现：
-        - 动态生成 Pydantic Entity/Edge 模型传递给 add_episode
-        - 在 Neo4j 中创建类型约束
-        """
+        """编译并缓存图谱本体，供后续 episode 抽取直接使用。"""
+        bundle = compile_graphiti_ontology(entities or [], edges or [])
         for graph_id in graph_ids:
-            self._ontology_cache[graph_id] = {
-                "entities": entities or {},
-                "edges": edges or {},
-            }
+            self._ontology_cache[graph_id] = bundle
             logger.info(
-                f"Ontology 已缓存 (MVP no-op): graph_id={graph_id}, "
-                f"entity_types={len(entities or {})}, edge_types={len(edges or {})}"
+                f"Ontology 已编译: graph_id={graph_id}, "
+                f"entity_types={len(bundle.entity_types)}, edge_types={len(bundle.edge_types)}"
             )
+
+    def _ontology_kwargs(self, graph_id: str) -> Dict[str, Any]:
+        bundle = self._ontology_cache.get(graph_id)
+        if bundle is None:
+            return {}
+        return {
+            "entity_types": bundle.entity_types,
+            "edge_types": bundle.edge_types,
+            "edge_type_map": bundle.edge_type_map,
+            "custom_extraction_instructions": bundle.custom_extraction_instructions,
+        }
 
     # ==================== Episode 操作 ====================
 
@@ -454,6 +453,7 @@ class GraphitiClient(ZepClientAdapter):
                 source_description="mirofish_simulation",
                 reference_time=datetime.now(timezone.utc),
                 group_id=graph_id,
+                **self._ontology_kwargs(graph_id),
             )
             return result.episode.uuid if result and result.episode else ""
 
@@ -494,6 +494,7 @@ class GraphitiClient(ZepClientAdapter):
             result = await self._graphiti.add_episode_bulk(
                 bulk_episodes=raw_episodes,
                 group_id=graph_id,
+                **self._ontology_kwargs(graph_id),
             )
             # 返回所有 episode UUID
             return [ep.uuid for ep in result.episodes] if result and result.episodes else []

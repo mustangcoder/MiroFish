@@ -1,6 +1,7 @@
 """按配置协议创建 CAMEL/OASIS 模型后端。"""
 
 import asyncio
+import logging
 import time
 from types import SimpleNamespace
 
@@ -11,6 +12,12 @@ from openai.types.chat import ChatCompletion
 
 from app.services.protocols.base import TextGenerationRequest
 from app.services.protocols.factory import create_text_client
+try:
+    from .context_compactor import compact_messages
+except ImportError:  # Script execution adds backend/scripts directly to sys.path.
+    from context_compactor import compact_messages
+
+logger = logging.getLogger("mirofish.simulation_context")
 
 
 def describe_backend(protocol: str) -> str:
@@ -25,8 +32,15 @@ def describe_backend(protocol: str) -> str:
 
 
 class ResponsesModelBackend(BaseModelBackend):
-    def __init__(self, model_type, api_key, url, timeout=None):
+    def __init__(self, model_type, api_key, url, timeout=None, context_window_tokens=None):
+        if (
+            isinstance(context_window_tokens, bool)
+            or not isinstance(context_window_tokens, int)
+            or context_window_tokens <= 0
+        ):
+            raise ValueError("ResponsesModelBackend requires a positive context_window_tokens value")
         super().__init__(model_type=model_type, api_key=api_key, url=url, timeout=timeout)
+        self.context_window_tokens = context_window_tokens
         self._client = create_text_client(
             SimpleNamespace(protocol="openai_responses", base_url=url),
             api_key,
@@ -62,11 +76,28 @@ class ResponsesModelBackend(BaseModelBackend):
         return values
 
     def _run(self, messages, response_format=None, tools=None):
+        preprocessed_messages = self.preprocess_messages(messages)
+        compaction = compact_messages(
+            preprocessed_messages,
+            tools or [],
+            self.token_counter,
+            self.context_window_tokens,
+        )
+        if compaction.removed_groups:
+            logger.info(
+                "compacted model context model=%s original_tokens=%s compacted_tokens=%s budget=%s removed_groups=%s",
+                self.model_type,
+                compaction.original_tokens,
+                compaction.compacted_tokens,
+                compaction.input_budget,
+                compaction.removed_groups,
+            )
         result = self._client.generate(TextGenerationRequest(
             model=str(self.model_type),
-            messages=self._responses_input(self.preprocess_messages(messages)),
+            messages=self._responses_input(compaction.messages),
             max_output_tokens=self.model_config_dict.get("max_tokens"),
             tools=tools,
+            truncation="auto",
         ))
         response = result.raw
         tool_calls = []
@@ -106,10 +137,10 @@ class ResponsesModelBackend(BaseModelBackend):
         return await asyncio.to_thread(self._run, messages, response_format, tools)
 
 
-def create_simulation_model(api_key: str, base_url: str, model: str, protocol: str, timeout=None):
+def create_simulation_model(api_key: str, base_url: str, model: str, protocol: str, timeout=None, context_window_tokens=None):
     backend = describe_backend(protocol)
     if backend == "protocol-bridge":
-        return ResponsesModelBackend(model, api_key, base_url, timeout)
+        return ResponsesModelBackend(model, api_key, base_url, timeout, context_window_tokens)
     platform = (
         ModelPlatformType.ANTHROPIC
         if backend == "anthropic"

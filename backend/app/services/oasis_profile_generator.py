@@ -27,6 +27,7 @@ from ..utils.zep import (
 )
 from .zep_entity_reader import EntityNode, ZepEntityReader
 from .zep_factory import get_zep_client
+from .entity_kind_classifier import EntityKind, classify_entity_kind
 
 logger = get_logger('mirofish.oasis_profile')
 
@@ -534,11 +535,24 @@ class OasisProfileGenerator:
 
     def _is_individual_entity(self, entity_type: str) -> bool:
         """判断是否是个人类型实体"""
-        return entity_type.lower() in self.INDIVIDUAL_ENTITY_TYPES
+        return classify_entity_kind(entity_type) is EntityKind.INDIVIDUAL
 
     def _is_group_entity(self, entity_type: str) -> bool:
         """判断是否是群体/机构类型实体"""
-        return entity_type.lower() in self.GROUP_ENTITY_TYPES
+        return classify_entity_kind(entity_type) is EntityKind.INSTITUTION
+
+    def _build_persona_prompt(
+        self, entity_name, entity_type, entity_summary, entity_attributes, context
+    ):
+        kind = classify_entity_kind(entity_type, entity_attributes, entity_summary)
+        args = (entity_name, entity_type, entity_summary, entity_attributes, context)
+        if kind is EntityKind.INDIVIDUAL:
+            prompt = self._build_individual_persona_prompt(*args)
+        elif kind is EntityKind.INSTITUTION:
+            prompt = self._build_group_persona_prompt(*args)
+        else:
+            prompt = self._build_contextual_persona_prompt(*args, entity_kind=kind)
+        return kind, prompt
 
     def _generate_profile_with_llm(
         self,
@@ -556,16 +570,9 @@ class OasisProfileGenerator:
         - 群体/机构实体：生成代表性账号设定
         """
 
-        is_individual = self._is_individual_entity(entity_type)
-
-        if is_individual:
-            prompt = self._build_individual_persona_prompt(
-                entity_name, entity_type, entity_summary, entity_attributes, context
-            )
-        else:
-            prompt = self._build_group_persona_prompt(
-                entity_name, entity_type, entity_summary, entity_attributes, context
-            )
+        entity_kind, prompt = self._build_persona_prompt(
+            entity_name, entity_type, entity_summary, entity_attributes, context
+        )
 
         # 尝试多次生成，直到成功或达到最大重试次数
         max_attempts = 3
@@ -577,7 +584,7 @@ class OasisProfileGenerator:
                     self.client,
                     model=self.model_name,
                     messages=[
-                        {"role": "system", "content": self._get_system_prompt(is_individual)},
+                        {"role": "system", "content": self._get_system_prompt(entity_kind is EntityKind.INDIVIDUAL)},
                         {"role": "user", "content": prompt}
                     ],
                     response_format={"type": "json_object"},
@@ -818,6 +825,29 @@ class OasisProfileGenerator:
 - age必须是整数30，gender必须是字符串"other"
 - 机构账号发言要符合其身份定位"""
 
+    def _build_contextual_persona_prompt(
+        self,
+        entity_name: str,
+        entity_type: str,
+        entity_summary: str,
+        entity_attributes: Dict[str, Any],
+        context: str,
+        entity_kind: EntityKind,
+    ) -> str:
+        """为地区、事件和未决类型生成中性的代表账号，而不伪装成个人或机构。"""
+        attrs_str = json.dumps(entity_attributes, ensure_ascii=False) if entity_attributes else "无"
+        context_str = context[:3000] if context else "无额外上下文"
+        return f"""为一个{entity_kind.value}类型的图谱实体生成中性的社交媒体代表账号设定。
+
+实体名称: {entity_name}
+实体类型: {entity_type}
+实体摘要: {entity_summary}
+实体属性: {attrs_str}
+上下文信息: {context_str}
+
+返回有效JSON，字段包括 bio、persona、age、gender、mbti、country、profession、interested_topics。
+账号应围绕该实体汇总信息、表达相关参与者的典型观点；不要把地区、事件或未知对象虚构成具体自然人，也不要凭空假定其属于中国。gender 使用 other；country 无依据时使用“未明确”。"""
+
     def _generate_profile_rule_based(
         self,
         entity_name: str,
@@ -829,6 +859,7 @@ class OasisProfileGenerator:
 
         # 根据实体类型生成不同的人设
         entity_type_lower = entity_type.lower()
+        entity_kind = classify_entity_kind(entity_type, entity_attributes, entity_summary)
 
         if entity_type_lower in ["student", "alumni"]:
             return {
@@ -854,14 +885,26 @@ class OasisProfileGenerator:
                 "interested_topics": ["Politics", "Economics", "Culture & Society"],
             }
 
+        elif entity_kind is EntityKind.INDIVIDUAL:
+            return {
+                "bio": entity_summary[:150] if entity_summary else f"{entity_name}, {entity_type}.",
+                "persona": entity_summary or f"{entity_name} participates as a {entity_type} and shares informed personal perspectives.",
+                "age": random.randint(25, 60),
+                "gender": random.choice(["male", "female"]),
+                "mbti": random.choice(self.MBTI_TYPES),
+                "country": self._country_from_attributes(entity_attributes),
+                "profession": entity_attributes.get("occupation") or entity_attributes.get("profession") or entity_type,
+                "interested_topics": ["Current Events", "Industry", "Social Issues"],
+            }
+
         elif entity_type_lower in ["mediaoutlet", "socialmediaplatform"]:
             return {
                 "bio": f"Official account for {entity_name}. News and updates.",
                 "persona": f"{entity_name} is a media entity that reports news and facilitates public discourse. The account shares timely updates and engages with the audience on current events.",
                 "age": 30,  # 机构虚拟年龄
                 "gender": "other",  # 机构使用other
-                "mbti": "ISTJ",  # 机构风格：严谨保守
-                "country": "中国",
+                "mbti": random.choice(["ISTJ", "INTJ", "ESTJ", "ENTJ"]),
+                "country": self._country_from_attributes(entity_attributes),
                 "profession": "Media",
                 "interested_topics": ["General News", "Current Events", "Public Affairs"],
             }
@@ -872,24 +915,44 @@ class OasisProfileGenerator:
                 "persona": f"{entity_name} is an institutional entity that communicates official positions, announcements, and engages with stakeholders on relevant matters.",
                 "age": 30,  # 机构虚拟年龄
                 "gender": "other",  # 机构使用other
-                "mbti": "ISTJ",  # 机构风格：严谨保守
-                "country": "中国",
+                "mbti": random.choice(["ISTJ", "INTJ", "ESTJ", "ENTJ"]),
+                "country": self._country_from_attributes(entity_attributes),
                 "profession": entity_type,
                 "interested_topics": ["Public Policy", "Community", "Official Announcements"],
             }
 
+        elif entity_kind is EntityKind.INSTITUTION:
+            return {
+                "bio": entity_summary[:150] if entity_summary else f"Official account of {entity_name}.",
+                "persona": entity_summary or f"{entity_name} communicates as a {entity_type} account to relevant stakeholders.",
+                "age": 30,
+                "gender": "other",
+                "mbti": random.choice(["ISTJ", "INTJ", "ESTJ", "ENTJ"]),
+                "country": self._country_from_attributes(entity_attributes),
+                "profession": entity_type,
+                "interested_topics": ["Official Announcements", "Industry", "Public Affairs"],
+            }
+
         else:
-            # 默认人设
+            # 地区、事件与未决类型使用中性代表账号，避免伪造个人身份和国籍。
             return {
                 "bio": entity_summary[:150] if entity_summary else f"{entity_type}: {entity_name}",
-                "persona": entity_summary or f"{entity_name} is a {entity_type.lower()} participating in social discussions.",
-                "age": random.randint(25, 50),
-                "gender": random.choice(["male", "female"]),
-                "mbti": random.choice(self.MBTI_TYPES),
-                "country": random.choice(self.COUNTRIES),
-                "profession": entity_type,
+                "persona": entity_summary or f"A representative account sharing information and perspectives related to {entity_name}.",
+                "age": 30,
+                "gender": "other",
+                "mbti": random.choice([value for value in self.MBTI_TYPES if value != "ISTJ"]),
+                "country": self._country_from_attributes(entity_attributes),
+                "profession": f"{entity_kind.value.title()} representative",
                 "interested_topics": ["General", "Social Issues"],
             }
+
+    @staticmethod
+    def _country_from_attributes(entity_attributes: Dict[str, Any]) -> str:
+        for key in ("country", "nation", "location", "所在地", "国家"):
+            value = entity_attributes.get(key) if entity_attributes else None
+            if value:
+                return _coerce_to_str(value)
+        return "未明确"
 
     def set_graph_id(self, graph_id: str):
         """设置图谱ID用于Zep检索"""
@@ -903,7 +966,9 @@ class OasisProfileGenerator:
         graph_id: Optional[str] = None,
         parallel_count: int = 5,
         realtime_output_path: Optional[str] = None,
-        output_platform: str = "reddit"
+        output_platform: str = "reddit",
+        existing_profiles: Optional[Dict[str, Any]] = None,
+        checkpoint_callback: Optional[callable] = None,
     ) -> List[OasisAgentProfile]:
         """
         批量从实体生成Agent Profile（支持并行生成）
@@ -929,7 +994,17 @@ class OasisProfileGenerator:
 
         total = len(entities)
         profiles = [None] * total  # 预分配列表保持顺序
-        completed_count = [0]  # 使用列表以便在闭包中修改
+        existing_profiles = existing_profiles or {}
+        for idx, entity in enumerate(entities):
+            restored = existing_profiles.get(entity.uuid)
+            if restored is None:
+                continue
+            profile = restored if isinstance(restored, OasisAgentProfile) else OasisAgentProfile(**restored)
+            profile.user_id = idx
+            profile.source_entity_uuid = entity.uuid
+            profile.source_entity_type = entity.get_entity_type() or "Entity"
+            profiles[idx] = profile
+        completed_count = [len([profile for profile in profiles if profile is not None])]
         lock = Lock()
 
         # 实时写入文件的辅助函数
@@ -1008,6 +1083,7 @@ class OasisProfileGenerator:
             future_to_entity = {
                 executor.submit(generate_single_profile, idx, entity): (idx, entity)
                 for idx, entity in enumerate(entities)
+                if profiles[idx] is None
             }
 
             # 收集结果
@@ -1018,6 +1094,9 @@ class OasisProfileGenerator:
                 try:
                     result_idx, profile, error = future.result()
                     profiles[result_idx] = profile
+
+                    if checkpoint_callback:
+                        checkpoint_callback(result_idx, entity, profile)
 
                     with lock:
                         completed_count[0] += 1
@@ -1051,6 +1130,8 @@ class OasisProfileGenerator:
                         source_entity_uuid=entity.uuid,
                         source_entity_type=entity_type,
                     )
+                    if checkpoint_callback:
+                        checkpoint_callback(idx, entity, profiles[idx])
                     # 实时写入文件（即使是备用人设）
                     save_profiles_realtime()
 
@@ -1222,8 +1303,8 @@ class OasisProfileGenerator:
                 # OASIS必需字段 - 确保都有默认值
                 "age": profile.age if profile.age else 30,
                 "gender": self._normalize_gender(profile.gender),
-                "mbti": profile.mbti if profile.mbti else "ISTJ",
-                "country": profile.country if profile.country else "中国",
+                "mbti": profile.mbti if profile.mbti else "ISFP",
+                "country": profile.country if profile.country else "未明确",
             }
 
             # 可选字段

@@ -3,6 +3,8 @@ Zep图谱记忆更新服务
 将模拟中的Agent活动动态更新到Zep图谱中
 """
 
+import math
+import re
 import time
 import threading
 from typing import Dict, Any, List, Optional
@@ -226,7 +228,7 @@ class ZepGraphMemoryUpdater:
     """
 
     # 批量发送大小（每个平台累积多少条后发送）
-    BATCH_SIZE = 5
+    BATCH_SIZE = 20
 
     # 平台名称映射（用于控制台显示）
     PLATFORM_DISPLAY_NAMES = {
@@ -240,6 +242,9 @@ class ZepGraphMemoryUpdater:
     # Zep recommends keeping an episode below 10,000 characters. Leave room
     # for future source formatting changes.
     MAX_EPISODE_CHARS = 9_500
+    EPISODE_SPLIT_CHARS = int(MAX_EPISODE_CHARS * 0.9)
+    PROVIDER_RETRY_DELAY_SECONDS = 30
+    PROVIDER_RETRY_ATTEMPTS = 4
 
     def __init__(
         self,
@@ -453,18 +458,24 @@ class ZepGraphMemoryUpdater:
         current_activities: List[AgentActivity] = []
         current_lines: List[str] = []
         current_length = 0
+        current_group = None
 
         for activity in activities:
             text = activity.to_episode_text()
             if len(text) > self.MAX_EPISODE_CHARS:
                 marker = "... [truncated by MiroFish]"
                 text = text[: self.MAX_EPISODE_CHARS - len(marker)] + marker
+            group = (activity.platform.lower(), activity.round_num)
             projected_length = current_length + (1 if current_lines else 0) + len(text)
-            if current_lines and projected_length > self.MAX_EPISODE_CHARS:
+            if current_lines and (
+                group != current_group
+                or projected_length > self.EPISODE_SPLIT_CHARS
+            ):
                 payloads.append((current_activities, "\n".join(current_lines)))
                 current_activities = []
                 current_lines = []
                 current_length = 0
+            current_group = group
             current_activities.append(activity)
             current_lines.append(text)
             current_length += (1 if len(current_lines) > 1 else 0) + len(text)
@@ -472,6 +483,13 @@ class ZepGraphMemoryUpdater:
         if current_lines:
             payloads.append((current_activities, "\n".join(current_lines)))
         return payloads
+
+    @staticmethod
+    def _estimate_tokens(text: str) -> int:
+        """Estimate multilingual token usage without logging source text."""
+        cjk_count = len(re.findall(r"[\u3400-\u9fff\uf900-\ufaff]", text))
+        non_cjk_count = max(0, len(text) - cjk_count)
+        return max(1, cjk_count + math.ceil(non_cjk_count / 4))
 
     def _send_batch_activities(
         self,
@@ -495,45 +513,77 @@ class ZepGraphMemoryUpdater:
             if deadline is not None and time.time() >= deadline:
                 raise _DrainDeadlineExceeded(processed_count)
             try:
-                if getattr(self, '_backend', 'cloud') == 'graphiti':
-                    episode_uuid = self.client.add_episode(self.graph_id, combined_text, "text")
-                    episode = None
-                else:
-                    episode = self.client.graph.add(
-                    graph_id=self.graph_id,
-                    type="text",
-                    data=combined_text,
-                    created_at=self._to_rfc3339(payload_activities[-1].timestamp),
-                    source_description="MiroFish simulation activity batch",
-                    metadata={
-                        "source": "mirofish_simulation",
-                        "simulation_id": self.simulation_id,
-                        "platform": platform,
-                        "activity_count": len(payload_activities),
-                        "first_round": min(a.round_num for a in payload_activities),
-                        "last_round": max(a.round_num for a in payload_activities),
-                        "agent_ids": ",".join(
-                            str(value)
-                            for value in sorted({a.agent_id for a in payload_activities})
-                        ),
-                        "action_types": ",".join(
-                            value
-                            for value in sorted({a.action_type for a in payload_activities})
-                            if value
-                        ) or "unknown",
-                    },
+                character_count = len(combined_text)
+                estimated_token_count = self._estimate_tokens(combined_text)
+                display_name = self._get_platform_display_name(platform)
+                logger.info(
+                    "准备发送%s图谱批次: activities=%s, round=%s, chars=%s, estimated_tokens=%s",
+                    display_name,
+                    len(payload_activities),
+                    payload_activities[0].round_num,
+                    character_count,
+                    estimated_token_count,
                 )
-
-                    episode_uuid = getattr(episode, "uuid_", None) or getattr(episode, "uuid", None)
+                episode_uuid = None
+                for attempt in range(self.PROVIDER_RETRY_ATTEMPTS):
+                    try:
+                        if getattr(self, '_backend', 'cloud') == 'graphiti':
+                            episode_uuid = self.client.add_episode(self.graph_id, combined_text, "text")
+                        else:
+                            episode = self.client.graph.add(
+                                graph_id=self.graph_id,
+                                type="text",
+                                data=combined_text,
+                                created_at=self._to_rfc3339(payload_activities[-1].timestamp),
+                                source_description="MiroFish simulation activity batch",
+                                metadata={
+                                    "source": "mirofish_simulation",
+                                    "simulation_id": self.simulation_id,
+                                    "platform": platform,
+                                    "activity_count": len(payload_activities),
+                                    "character_count": character_count,
+                                    "estimated_token_count": estimated_token_count,
+                                    "first_round": min(a.round_num for a in payload_activities),
+                                    "last_round": max(a.round_num for a in payload_activities),
+                                    "agent_ids": ",".join(
+                                        str(value)
+                                        for value in sorted({a.agent_id for a in payload_activities})
+                                    ),
+                                    "action_types": ",".join(
+                                        value
+                                        for value in sorted({a.action_type for a in payload_activities})
+                                        if value
+                                    ) or "unknown",
+                                },
+                            )
+                            episode_uuid = getattr(episode, "uuid_", None) or getattr(episode, "uuid", None)
+                        break
+                    except Exception as error:
+                        if (
+                            attempt + 1 >= self.PROVIDER_RETRY_ATTEMPTS
+                            or not self._is_definitive_provider_rejection(error)
+                        ):
+                            raise
+                        delay = self.PROVIDER_RETRY_DELAY_SECONDS
+                        if deadline is not None and time.time() + delay >= deadline:
+                            raise _DrainDeadlineExceeded(processed_count) from error
+                        logger.warning(
+                            "图谱模型服务限流或熔断，%s秒后重试同一批次: attempt=%s/%s",
+                            delay,
+                            attempt + 2,
+                            self.PROVIDER_RETRY_ATTEMPTS,
+                        )
+                        time.sleep(delay)
                 if not episode_uuid:
                     raise RuntimeError("Zep graph.add returned no episode UUID")
                 self._pending_episode_uuids.append(str(episode_uuid))
                 self._total_sent += 1
                 self._total_items_sent += len(payload_activities)
-                display_name = self._get_platform_display_name(platform)
                 logger.info(f"成功批量发送 {len(payload_activities)} 条{display_name}活动到图谱 {self.graph_id}")
                 logger.debug(f"批量内容预览: {combined_text[:200]}...")
 
+            except _DrainDeadlineExceeded:
+                raise
             except Exception as e:
                 # graph.add has no idempotency key. Replaying an ambiguous
                 # response can duplicate extracted facts, so fail closed and
@@ -551,6 +601,21 @@ class ZepGraphMemoryUpdater:
                 # way this payload is accounted for before moving on.
                 processed_count += len(payload_activities)
         return processed_count
+
+    @staticmethod
+    def _is_definitive_provider_rejection(error: Exception) -> bool:
+        response = getattr(error, "response", None)
+        status = getattr(error, "status_code", None) or getattr(response, "status_code", None)
+        message = str(error).lower()
+        return status == 429 or any(
+            marker in message
+            for marker in (
+                "provider circuit is open",
+                "rate_limited",
+                "rate limited",
+                "too many requests",
+            )
+        )
 
     @staticmethod
     def _to_rfc3339(value: str) -> str:

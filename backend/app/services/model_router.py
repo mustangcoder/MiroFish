@@ -8,6 +8,8 @@ from .credential_cipher import CredentialCipher
 from .model_config_store import ModelConfigStore
 from .provider_catalog import infer_vendor
 from .provider_credentials import resolve_connection_credential
+from .model_metadata import known_context_window
+from ..models.database import unified_database_path
 
 
 class ModelRouter:
@@ -17,7 +19,7 @@ class ModelRouter:
             self.store = store
         elif upload_folder:
             root = Path(upload_folder) / "model-config"
-            self.store = ModelConfigStore(root / "models.db", CredentialCipher(root / "master.key"))
+            self.store = ModelConfigStore(unified_database_path(), CredentialCipher(root / "master.key"))
         else:
             self.store = None
 
@@ -52,4 +54,8 @@ class ModelRouter:
 
     def build_simulation_environment(self, project_id=None):
         config = self.resolve(ModelRole.HIGH_THROUGHPUT, project_id)
-        return {"LLM_API_KEY": config.get("api_key", ""), "LLM_BASE_URL": config.get("base_url", ""), "LLM_MODEL_NAME": config.get("model", ""), "LLM_PROTOCOL": config.get("protocol", "openai_chat_completions"), "LLM_AUTH_TYPE": config.get("auth_type", "api_key")}
+        context_window = config.get("context_window_tokens") or known_context_window(config.get("model", ""))
+        environment = {"LLM_API_KEY": config.get("api_key", ""), "LLM_BASE_URL": config.get("base_url", ""), "LLM_MODEL_NAME": config.get("model", ""), "LLM_PROTOCOL": config.get("protocol", "openai_chat_completions"), "LLM_AUTH_TYPE": config.get("auth_type", "api_key")}
+        if context_window is not None:
+            environment["LLM_CONTEXT_WINDOW_TOKENS"] = str(context_window)
+        return environment
