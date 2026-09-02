@@ -70,6 +70,7 @@ import { computed, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import HistoryProjectList from '../components/HistoryProjectList.vue'
 import HistoryTaskList from '../components/HistoryTaskList.vue'
+import { getSimulationHistory } from '../api/simulation'
 import {
   deleteHistoryProject,
   deleteHistoryTask,
@@ -84,6 +85,7 @@ const activeTab = ref('projects')
 const taskStatus = ref('')
 const projects = ref([])
 const tasks = ref([])
+const simulations = ref([])
 const loading = ref(false)
 const error = ref('')
 const dialog = ref(null)
@@ -92,9 +94,20 @@ const deleteConfirmation = ref('')
 const mutationLoading = ref(false)
 const loadedTabs = ref(new Set())
 const hasLoaded = computed(() => loadedTabs.value.has(activeTab.value))
+const workflowRank = simulation => {
+  if (simulation.report_id) return 4
+  if (simulation.runner_status && simulation.runner_status !== 'idle' && (simulation.current_round || 0) > 0) return 3
+  if (['ready', 'preparing', 'running', 'completed', 'stopped', 'failed'].includes(simulation.status)) return 2
+  return 1
+}
+const projectSimulations = projectId => simulations.value.filter(item => item.project_id === projectId)
 const displayProjects = computed(() => projects.value.map(project => {
-  const relatedTask = tasks.value.find(task => task.metadata?.project_id === project.project_id && task.metadata?.simulation_id)
-  return { ...project, simulation_id: relatedTask?.metadata?.simulation_id || null }
+  const candidates = projectSimulations(project.project_id).sort((left, right) => {
+    const rankDifference = workflowRank(right) - workflowRank(left)
+    if (rankDifference) return rankDifference
+    return String(right.created_at || '').localeCompare(String(left.created_at || ''))
+  })
+  return { ...project, ...(candidates[0] || {}) }
 }))
 const displayTasks = computed(() => {
   const projectNames = new Map(projects.value.map(project => [project.project_id, project.name || '未命名项目']))
@@ -116,12 +129,14 @@ async function loadActive() {
   error.value = ''
   try {
     if (activeTab.value === 'projects') {
-      const [projectResponse, taskResponse] = await Promise.all([
+      const [projectResponse, taskResponse, simulationResponse] = await Promise.all([
         getHistoryProjects(),
-        getHistoryTasks()
+        getHistoryTasks(),
+        getSimulationHistory(100)
       ])
       projects.value = projectResponse.data || []
       tasks.value = taskResponse.data || []
+      simulations.value = simulationResponse.data || []
     } else {
       const response = await getHistoryTasks({ status: taskStatus.value || undefined })
       tasks.value = response.data || []
@@ -134,7 +149,26 @@ async function loadActive() {
   }
 }
 
-function openProject(projectId) { router.push(`/process/${projectId}`) }
+const latestProjectDestination = project => {
+  if (project.report_id) return { name: 'Report', params: { reportId: project.report_id } }
+  if (project.simulation_id && project.runner_status && project.runner_status !== 'idle') {
+    return {
+      name: 'SimulationRun',
+      params: { simulationId: project.simulation_id },
+      query: project.total_rounds ? { maxRounds: project.total_rounds } : {},
+    }
+  }
+  if (project.simulation_id) return { name: 'Simulation', params: { simulationId: project.simulation_id } }
+  return { name: 'Process', params: { projectId: project.project_id } }
+}
+function openProject(project) {
+  if (typeof project === 'string') {
+    const matched = displayProjects.value.find(item => item.project_id === project)
+    router.push(matched ? latestProjectDestination(matched) : `/process/${project}`)
+    return
+  }
+  router.push(latestProjectDestination(project))
+}
 function editProject(project) {
   dialogError.value = ''
   dialog.value = { type: 'edit-project', entity: project, name: project.name || '', note: '' }

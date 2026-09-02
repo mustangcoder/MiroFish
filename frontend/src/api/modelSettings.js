@@ -17,6 +17,7 @@ export const cancelChatGptLogin = loginId => service.post(`/api/settings/models/
 export const logoutChatGpt = () => service.post('/api/settings/models/oauth/logout')
 export const getConnectionModels = (connectionId, role, protocol) => service.get(`/api/settings/models/connections/${connectionId}/models`, { params: { role, protocol } })
 export const getProviderCatalog = () => service.get('/api/settings/models/provider-catalog')
+export const getModelMetadata = model => service.get('/api/settings/models/metadata', { params: { model } })
 export const getMemoryBackend = () => service.get('/api/settings/models/memory-backend')
 export const testMemoryBackend = data => service.post('/api/settings/models/memory-backend/test', data)
 export const saveMemoryBackend = data => service.put('/api/settings/models/memory-backend', data)

@@ -170,6 +170,61 @@ def test_active_platform_run_is_not_reportable():
     assert report_api._run_is_reportable(run_state) is False
 
 
+def test_completed_platforms_publish_terminal_state_while_environment_stays_alive(monkeypatch):
+    state = SimpleNamespace(
+        simulation_id="sim-1",
+        runner_status=RunnerStatus.RUNNING,
+        twitter_completed=True,
+        reddit_completed=True,
+        twitter_running=False,
+        reddit_running=False,
+        completed_at=None,
+        error=None,
+    )
+    stopped = []
+    saved = []
+    synced = []
+    process = object()
+    simulation_api.SimulationRunner._processes["sim-1"] = process
+    simulation_api.SimulationRunner._graph_memory_enabled["sim-1"] = True
+    monkeypatch.setattr(
+        simulation_api.ZepGraphMemoryManager,
+        "stop_updater",
+        classmethod(lambda _cls, simulation_id: stopped.append(simulation_id)),
+    )
+    monkeypatch.setattr(
+        simulation_api.SimulationRunner,
+        "_save_run_state",
+        classmethod(lambda _cls, value: saved.append(value.runner_status)),
+    )
+    monkeypatch.setattr(
+        simulation_api.SimulationRunner,
+        "_sync_simulation_status",
+        classmethod(lambda _cls, simulation_id, status, error=None: synced.append((simulation_id, status, error))),
+    )
+    monkeypatch.setattr(
+        simulation_api.SimulationRunner,
+        "_check_all_platforms_completed",
+        classmethod(lambda _cls, value: value.twitter_completed and value.reddit_completed),
+    )
+
+    try:
+        finalized = simulation_api.SimulationRunner._finalize_completed_platforms(state)
+        process_preserved = simulation_api.SimulationRunner._processes.get("sim-1") is process
+    finally:
+        simulation_api.SimulationRunner._processes.pop("sim-1", None)
+        simulation_api.SimulationRunner._graph_memory_enabled.pop("sim-1", None)
+
+    assert finalized is True
+    assert stopped == ["sim-1"]
+    assert state.runner_status == RunnerStatus.COMPLETED
+    assert state.completed_at is not None
+    assert state.error is None
+    assert process_preserved is True
+    assert RunnerStatus.STOPPING in saved and RunnerStatus.COMPLETED in saved
+    assert synced[-1] == ("sim-1", RunnerStatus.COMPLETED, None)
+
+
 def test_report_reader_lease_blocks_graph_start_and_delete(monkeypatch):
     simulation = SimpleNamespace(
         simulation_id="sim-1",

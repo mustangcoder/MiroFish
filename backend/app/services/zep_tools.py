@@ -1319,6 +1319,11 @@ class ZepToolsService:
             interview_questions=custom_questions or []
         )
 
+        if not SimulationRunner.check_env_alive(simulation_id):
+            logger.warning("模拟采访环境不可用，跳过实时采访: simulation_id=%s", simulation_id)
+            result.summary = "模拟采访环境不可用，已跳过实时采访；请改用图谱检索结果。"
+            return result
+
         # Step 1: 读取人设文件
         profiles = self._load_agent_profiles(simulation_id)
 

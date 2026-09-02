@@ -16,12 +16,14 @@ from .credential_cipher import CredentialCipher
 from .model_config_store import ModelConfigStore
 from .provider_catalog import infer_vendor
 from .provider_catalog import get_provider_spec, protocol_capability
+from .model_metadata import input_token_budget, known_context_window
+from ..models.database import unified_database_path
 
 
 class ModelConfigService:
     def __init__(self, store=None, environment=None):
         root = Path(Config.UPLOAD_FOLDER) / "model-config"
-        self.store = store or ModelConfigStore(root / "models.db", CredentialCipher(root / "master.key"))
+        self.store = store or ModelConfigStore(unified_database_path(), CredentialCipher(root / "master.key"))
         self.environment = environment or os.environ
 
     def initialize_from_environment(self):
@@ -81,6 +83,19 @@ class ModelConfigService:
                 raise ValueError("Embedding 角色必须使用 Embedding 协议")
             if role != ModelRole.EMBEDDING and protocol_state.capability != ModelCapability.TEXT_GENERATION:
                 raise ValueError(f"模型角色必须使用文本生成协议: {role.value}")
+            if role != ModelRole.EMBEDDING:
+                context_window = config.get("context_window_tokens")
+                if context_window is None:
+                    context_window = known_context_window(config["model"])
+                    if context_window is not None:
+                        config["context_window_tokens"] = context_window
+                if (
+                    isinstance(context_window, bool)
+                    or not isinstance(context_window, int)
+                    or context_window <= 0
+                ):
+                    raise ValueError(f"模型角色必须配置有效的最大上下文 Tokens: {role.value}")
+                input_token_budget(context_window)
         return normalized
 
     def validate_connection_data(self, data, require_protocols=False):
@@ -170,4 +185,5 @@ class ModelConfigService:
                 untested.append(role.value)
         if untested:
             raise ValueError("以下模型角色尚未通过连接测试: " + ", ".join(untested))
+        self.store.save_draft(assignments)
         return self.store.apply_draft()

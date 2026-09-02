@@ -18,7 +18,22 @@ from .utils.logger import setup_logger, get_logger
 
 def create_app(config_class=Config):
     """Flask应用工厂函数"""
-    if config_class is Config:
+    uses_default_config = config_class is Config
+    if uses_default_config:
+        from pathlib import Path
+        from .models.database import initialize_unified_database, unified_database_path
+        from .models.task import TaskManager
+        from .models.task_store import TaskStore
+        from .services.credential_cipher import CredentialCipher
+        from .services.model_config_store import ModelConfigStore
+        database_path = unified_database_path()
+        key_path = Path(Config.UPLOAD_FOLDER) / "model-config" / "master.key"
+        ModelConfigStore(database_path, CredentialCipher(key_path))
+        TaskStore(database_path)
+        initialize_unified_database(database_path)
+        # Re-open once so model-level migrations also cover imported rows.
+        ModelConfigStore(database_path, CredentialCipher(key_path))
+        TaskManager.configure_store(str(database_path))
         from .services.memory_backend_config_service import MemoryBackendConfigService
         memory_config_service = MemoryBackendConfigService()
         memory_config_service.initialize_from_environment()
@@ -50,8 +65,11 @@ def create_app(config_class=Config):
     # 注册模拟进程清理函数（确保服务器关闭时终止所有模拟进程）
     from .services.simulation_runner import SimulationRunner
     SimulationRunner.register_cleanup()
+    stale_environment_count = SimulationRunner.reconcile_stale_environment_statuses()
     if should_log_startup:
         logger.info("已注册模拟进程清理函数")
+        if stale_environment_count:
+            logger.info("已纠正 %s 个失效的模拟采访环境状态", stale_environment_count)
     
     # 请求日志中间件
     @app.before_request
@@ -79,6 +97,13 @@ def create_app(config_class=Config):
     app.register_blueprint(simulation_bp, url_prefix='/api/simulation')
     app.register_blueprint(report_bp, url_prefix='/api/report')
     app.register_blueprint(model_settings_bp, url_prefix='/api/settings/models')
+
+    if uses_default_config and should_log_startup:
+        from .services.simulation_preparation_runner import get_simulation_preparation_runner
+
+        recovered_count = get_simulation_preparation_runner().recover_pending()
+        if recovered_count:
+            logger.info("已恢复 %s 个环境准备任务", recovered_count)
     
     # 健康检查
     @app.route('/health')

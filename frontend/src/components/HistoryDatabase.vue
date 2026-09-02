@@ -165,9 +165,9 @@
                 class="modal-btn btn-simulation"
                 @click="goToSimulation"
               >
-                <span class="btn-step">Step2</span>
+                <span class="btn-step">{{ latestReplayStep }}</span>
                 <span class="btn-icon">◈</span>
-                <span class="btn-text">{{ $t('history.step2Button') }}</span>
+                <span class="btn-text">{{ $t('history.latestButton') }}</span>
               </button>
               <button
                 class="modal-btn btn-report"
@@ -423,13 +423,29 @@ const goToProject = () => {
 // 导航到环境配置页面（Simulation）
 const goToSimulation = () => {
   if (selectedProject.value?.simulation_id) {
-    router.push({
-      name: 'Simulation',
-      params: { simulationId: selectedProject.value.simulation_id }
-    })
+    router.push(latestSimulationDestination(selectedProject.value))
     closeModal()
   }
 }
+
+const latestSimulationDestination = simulation => {
+  if (simulation.report_id) {
+    return { name: 'Report', params: { reportId: simulation.report_id } }
+  }
+  if (simulation.runner_status && simulation.runner_status !== 'idle') {
+    return {
+      name: 'SimulationRun',
+      params: { simulationId: simulation.simulation_id },
+      query: simulation.total_rounds ? { maxRounds: simulation.total_rounds } : {},
+    }
+  }
+  return { name: 'Simulation', params: { simulationId: simulation.simulation_id } }
+}
+const latestReplayStep = computed(() => {
+  if (selectedProject.value?.report_id) return 'Step4'
+  if (selectedProject.value?.runner_status && selectedProject.value.runner_status !== 'idle') return 'Step3'
+  return 'Step2'
+})
 
 // 导航到分析报告页面（Report）
 const goToReport = () => {

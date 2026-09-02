@@ -23,6 +23,7 @@ from ..utils.logger import get_logger
 from ..utils.locale import t, get_locale, set_locale
 from ..utils.zep_lifecycle import get_graph_readers, graph_lifecycle_lock
 from ..models.project import ProjectManager
+from ..models.task import TaskManager
 
 logger = get_logger('mirofish.api.simulation')
 
@@ -386,6 +387,18 @@ def _check_simulation_prepared(simulation_id: str) -> tuple:
         return False, {"reason": f"读取状态文件失败: {str(e)}"}
 
 
+def _select_active_prepare_task(tasks, simulation_id: str):
+    """Return the persisted in-flight prepare task for one simulation."""
+    for task in tasks:
+        if (
+            task.get("task_type") == "simulation_prepare"
+            and task.get("status") in {"pending", "processing"}
+            and task.get("metadata", {}).get("simulation_id") == simulation_id
+        ):
+            return task
+    return None
+
+
 @simulation_bp.route('/prepare', methods=['POST'])
 def prepare_simulation():
     """
@@ -427,11 +440,6 @@ def prepare_simulation():
             }
         }
     """
-    import threading
-    import os
-    from ..models.task import TaskManager, TaskStatus
-    from ..config import Config
-
     try:
         data = request.get_json() or {}
 
@@ -475,6 +483,26 @@ def prepare_simulation():
             else:
                 logger.info(f"模拟 {simulation_id} 未准备完成，将启动准备任务")
 
+            active_task = _select_active_prepare_task(
+                TaskManager().list_tasks(task_type="simulation_prepare"),
+                simulation_id,
+            )
+            if active_task:
+                logger.info(
+                    "复用进行中的准备任务: simulation_id=%s, task_id=%s",
+                    simulation_id,
+                    active_task["task_id"],
+                )
+                return jsonify({
+                    "success": True,
+                    "data": {
+                        **active_task,
+                        "simulation_id": simulation_id,
+                        "already_prepared": False,
+                        "reused": True,
+                    },
+                })
+
         # 从项目获取必要信息
         project = ProjectManager.get_project(state.project_id)
         if not project:
@@ -490,9 +518,6 @@ def prepare_simulation():
                 "success": False,
                 "error": t('api.projectMissingRequirement')
             }), 400
-
-        # 获取文档文本
-        document_text = ProjectManager.get_extracted_text(state.project_id) or ""
 
         entity_types_list = data.get('entity_types')
         use_llm_for_profiles = data.get('use_llm_for_profiles', True)
@@ -517,141 +542,24 @@ def prepare_simulation():
             logger.warning(f"同步获取实体数量失败（将在后台任务中重试）: {e}")
             # 失败不影响后续流程，后台任务会重新获取
 
-        # 创建异步任务
-        task_manager = TaskManager()
-        task_id = task_manager.create_task(
-            task_type="simulation_prepare",
-            metadata={
-                "simulation_id": simulation_id,
-                "project_id": state.project_id
-            }
-        )
-
         # 更新模拟状态（包含预先获取的实体数量）
         state.status = SimulationStatus.PREPARING
         manager._save_simulation_state(state)
+        from ..services.simulation_preparation_runner import get_simulation_preparation_runner
 
-        # Capture locale before spawning background thread
-        current_locale = get_locale()
-
-        # 定义后台任务
-        def run_prepare():
-            set_locale(current_locale)
-            try:
-                task_manager.update_task(
-                    task_id,
-                    status=TaskStatus.PROCESSING,
-                    progress=0,
-                    message=t('progress.startPreparingEnv')
-                )
-
-                # 准备模拟（带进度回调）
-                # 存储阶段进度详情
-                stage_details = {}
-
-                def progress_callback(stage, progress, message, **kwargs):
-                    # 计算总进度
-                    stage_weights = {
-                        "reading": (0, 20),           # 0-20%
-                        "generating_profiles": (20, 70),  # 20-70%
-                        "generating_config": (70, 90),    # 70-90%
-                        "copying_scripts": (90, 100)       # 90-100%
-                    }
-
-                    start, end = stage_weights.get(stage, (0, 100))
-                    current_progress = int(start + (end - start) * progress / 100)
-
-                    # 构建详细进度信息
-                    stage_names = {
-                        "reading": t('progress.readingGraphEntities'),
-                        "generating_profiles": t('progress.generatingProfiles'),
-                        "generating_config": t('progress.generatingSimConfig'),
-                        "copying_scripts": t('progress.preparingScripts')
-                    }
-
-                    stage_index = list(stage_weights.keys()).index(stage) + 1 if stage in stage_weights else 1
-                    total_stages = len(stage_weights)
-
-                    # 更新阶段详情
-                    stage_details[stage] = {
-                        "stage_name": stage_names.get(stage, stage),
-                        "stage_progress": progress,
-                        "current": kwargs.get("current", 0),
-                        "total": kwargs.get("total", 0),
-                        "item_name": kwargs.get("item_name", "")
-                    }
-
-                    # 构建详细进度信息
-                    detail = stage_details[stage]
-                    progress_detail_data = {
-                        "current_stage": stage,
-                        "current_stage_name": stage_names.get(stage, stage),
-                        "stage_index": stage_index,
-                        "total_stages": total_stages,
-                        "stage_progress": progress,
-                        "current_item": detail["current"],
-                        "total_items": detail["total"],
-                        "item_description": message
-                    }
-
-                    # 构建简洁消息
-                    if detail["total"] > 0:
-                        detailed_message = (
-                            f"[{stage_index}/{total_stages}] {stage_names.get(stage, stage)}: "
-                            f"{detail['current']}/{detail['total']} - {message}"
-                        )
-                    else:
-                        detailed_message = f"[{stage_index}/{total_stages}] {stage_names.get(stage, stage)}: {message}"
-
-                    task_manager.update_task(
-                        task_id,
-                        progress=current_progress,
-                        message=detailed_message,
-                        progress_detail=progress_detail_data
-                    )
-
-                result_state = manager.prepare_simulation(
-                    simulation_id=simulation_id,
-                    simulation_requirement=simulation_requirement,
-                    document_text=document_text,
-                    defined_entity_types=entity_types_list,
-                    use_llm_for_profiles=use_llm_for_profiles,
-                    progress_callback=progress_callback,
-                    parallel_profile_count=parallel_profile_count
-                )
-
-                if result_state.status == SimulationStatus.FAILED:
-                    task_manager.fail_task(
-                        task_id,
-                        result_state.error or "模拟准备失败"
-                    )
-                else:
-                    task_manager.complete_task(
-                        task_id,
-                        result=result_state.to_simple_dict()
-                    )
-
-            except Exception as e:
-                logger.error(f"准备模拟失败: {str(e)}")
-                task_manager.fail_task(task_id, str(e))
-
-                # 更新模拟状态为失败
-                state = manager.get_simulation(simulation_id)
-                if state:
-                    state.status = SimulationStatus.FAILED
-                    state.error = str(e)
-                    manager._save_simulation_state(state)
-
-        # 启动后台线程
-        thread = threading.Thread(target=run_prepare, daemon=True)
-        thread.start()
+        preparation = get_simulation_preparation_runner().start(
+            simulation_id,
+            entity_types=entity_types_list,
+            use_llm_for_profiles=use_llm_for_profiles,
+            parallel_profile_count=parallel_profile_count,
+            force_regenerate=force_regenerate,
+            locale=get_locale(),
+        )
 
         return jsonify({
             "success": True,
             "data": {
-                "simulation_id": simulation_id,
-                "task_id": task_id,
-                "status": "preparing",
+                **preparation,
                 "message": t('api.prepareStarted'),
                 "already_prepared": False,
                 "expected_entities_count": state.entities_count,  # 预期的Agent总数
@@ -703,12 +611,18 @@ def get_prepare_status():
         }
     """
     from ..models.task import TaskManager
+    from ..services.simulation_prepare_store import SimulationPrepareStore
 
     try:
         data = request.get_json() or {}
 
         task_id = data.get('task_id')
         simulation_id = data.get('simulation_id')
+        active_run = (
+            SimulationPrepareStore().get_active_run(simulation_id)
+            if simulation_id
+            else None
+        )
 
         # 如果提供了simulation_id，先检查是否已准备完成
         if simulation_id:
@@ -725,6 +639,45 @@ def get_prepare_status():
                         "prepare_info": prepare_info
                     }
                 })
+
+            active_task = _select_active_prepare_task(
+                TaskManager().list_tasks(task_type="simulation_prepare"),
+                simulation_id,
+            )
+            if active_task:
+                if active_run:
+                    active_task.update({
+                        "run_id": active_run["run_id"],
+                        "recovered_profiles": active_run["completed_profiles"],
+                        "total_profiles": active_run["total_profiles"],
+                    })
+                return jsonify({
+                    "success": True,
+                    "data": {
+                        **active_task,
+                        "simulation_id": simulation_id,
+                        "already_prepared": False,
+                        "reused": True,
+                    },
+                })
+
+            if active_run:
+                persisted_task = TaskManager().get_task(active_run["task_id"])
+                persisted_data = persisted_task.to_dict() if persisted_task else {
+                    "task_id": active_run["task_id"],
+                    "status": "processing",
+                    "progress": 0,
+                    "message": t('progress.startPreparingEnv'),
+                }
+                persisted_data.update({
+                    "simulation_id": simulation_id,
+                    "run_id": active_run["run_id"],
+                    "recovered_profiles": active_run["completed_profiles"],
+                    "total_profiles": active_run["total_profiles"],
+                    "already_prepared": False,
+                    "reused": True,
+                })
+                return jsonify({"success": True, "data": persisted_data})
 
         # 如果没有task_id，返回错误
         if not task_id:
@@ -773,6 +726,12 @@ def get_prepare_status():
 
         task_dict = task.to_dict()
         task_dict["already_prepared"] = False
+        if active_run and active_run["task_id"] == task_id:
+            task_dict.update({
+                "run_id": active_run["run_id"],
+                "recovered_profiles": active_run["completed_profiles"],
+                "total_profiles": active_run["total_profiles"],
+            })
 
         return jsonify({
             "success": True,

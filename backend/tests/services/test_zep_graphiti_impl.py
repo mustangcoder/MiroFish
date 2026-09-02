@@ -13,7 +13,7 @@ def _load_graphiti_client(monkeypatch):
     services_package = types.ModuleType("app.services")
     services_package.__path__ = [str(backend_dir / "app" / "services")]
     config_module = types.ModuleType("app.config")
-    config_module.Config = type("Config", (), {})
+    config_module.Config = type("Config", (), {"UPLOAD_FOLDER": "/tmp/mirofish-tests"})
 
     monkeypatch.setitem(sys.modules, "app", app_package)
     monkeypatch.setitem(sys.modules, "app.services", services_package)
@@ -238,3 +238,43 @@ def test_deepseek_base_url_uses_protocol_bridge(monkeypatch):
     llm_client = client._build_default_llm_client()
 
     assert type(llm_client).__name__ == "GraphitiProtocolClient"
+
+
+def test_set_ontology_compiles_graphiti_extraction_arguments(monkeypatch):
+    graphiti_client, _ = _load_graphiti_client(monkeypatch)
+    client = graphiti_client.__new__(graphiti_client)
+    client._ontology_cache = {}
+
+    client.set_ontology(
+        ["graph-1"],
+        entities=[
+            {"name": "Person", "description": "A person", "attributes": [{"name": "title", "description": "Job title"}]},
+            {"name": "Company", "description": "A company", "attributes": []},
+        ],
+        edges=[
+            {
+                "name": "WORKS_AT",
+                "description": "Employment relationship",
+                "source_targets": [{"source": "Person", "target": "Company"}],
+                "attributes": [],
+            }
+        ],
+    )
+
+    kwargs = client._ontology_kwargs("graph-1")
+    assert set(kwargs) == {
+        "entity_types",
+        "edge_types",
+        "edge_type_map",
+        "custom_extraction_instructions",
+    }
+    assert set(kwargs["entity_types"]) == {"Person", "Company"}
+    assert kwargs["edge_type_map"] == {("Person", "Company"): ["WORKS_AT"]}
+
+
+def test_missing_ontology_produces_no_extraction_arguments(monkeypatch):
+    graphiti_client, _ = _load_graphiti_client(monkeypatch)
+    client = graphiti_client.__new__(graphiti_client)
+    client._ontology_cache = {}
+
+    assert client._ontology_kwargs("missing") == {}

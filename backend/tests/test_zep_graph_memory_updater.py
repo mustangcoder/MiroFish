@@ -12,14 +12,14 @@ from app.services.zep_graph_memory_updater import (
 )
 
 
-def _activity(index=1, content="hello"):
+def _activity(index=1, content="hello", *, platform="twitter", round_num=None):
     return AgentActivity(
-        platform="twitter",
+        platform=platform,
         agent_id=index,
         agent_name=f"Agent {index}",
         action_type="CREATE_POST",
         action_args={"content": content},
-        round_num=index,
+        round_num=index if round_num is None else round_num,
         timestamp="2026-07-22T12:00:00+08:00",
     )
 
@@ -77,7 +77,7 @@ def test_network_write_happens_outside_the_buffer_lock(monkeypatch):
     updater = _updater(monkeypatch, add)
     updater.start()
     for index in range(updater.BATCH_SIZE):
-        updater.add_activity(_activity(index))
+        updater.add_activity(_activity(index, round_num=1))
     updater.stop()
 
     assert lock_was_available == [True]
@@ -106,6 +106,51 @@ def test_activity_episode_has_provenance_time_and_a_safe_size(monkeypatch):
     assert write["metadata"]["activity_count"] == 1
 
 
+def test_graphiti_batches_use_twenty_items_and_keep_hard_character_limit():
+    assert ZepGraphMemoryUpdater.BATCH_SIZE == 20
+    assert ZepGraphMemoryUpdater.MAX_EPISODE_CHARS == 9_500
+
+
+def test_episode_payloads_do_not_mix_platforms_or_rounds(monkeypatch):
+    updater = _updater(monkeypatch, lambda **_kwargs: SimpleNamespace(uuid_="episode"))
+    payloads = updater._build_episode_payloads([
+        _activity(1, platform="twitter", round_num=4),
+        _activity(2, platform="twitter", round_num=4),
+        _activity(3, platform="twitter", round_num=5),
+        _activity(4, platform="reddit", round_num=5),
+    ])
+
+    assert [len(items) for items, _ in payloads] == [2, 1, 1]
+    assert [{(item.platform, item.round_num) for item in items} for items, _ in payloads] == [
+        {("twitter", 4)}, {("twitter", 5)}, {("reddit", 5)},
+    ]
+
+
+def test_episode_payloads_split_before_the_hard_character_limit(monkeypatch):
+    updater = _updater(monkeypatch, lambda **_kwargs: SimpleNamespace(uuid_="episode"))
+    payloads = updater._build_episode_payloads([
+        _activity(1, content="x" * 4_500, round_num=8),
+        _activity(2, content="y" * 4_500, round_num=8),
+    ])
+
+    assert len(payloads) == 2
+    assert all(len(text) <= updater.MAX_EPISODE_CHARS for _, text in payloads)
+
+
+def test_write_logs_and_persists_payload_size_estimate(monkeypatch):
+    writes = []
+    log_messages = []
+    updater = _updater(monkeypatch, lambda **kwargs: writes.append(kwargs) or SimpleNamespace(uuid_="episode"))
+    monkeypatch.setattr(updater_module.logger, "info", lambda message, *args: log_messages.append(message % args if args else message))
+
+    updater._send_batch_activities([_activity(1, content="你好 world", round_num=9)], "twitter")
+
+    metadata = writes[0]["metadata"]
+    assert metadata["character_count"] > 0
+    assert metadata["estimated_token_count"] > 0
+    assert any("chars=" in message and "estimated_tokens=" in message for message in log_messages)
+
+
 def test_failed_non_idempotent_write_is_reported_by_stop(monkeypatch):
     def add(**_kwargs):
         raise RuntimeError("write failed")
@@ -117,6 +162,41 @@ def test_failed_non_idempotent_write_is_reported_by_stop(monkeypatch):
     with pytest.raises(RuntimeError, match="ingestion is incomplete"):
         updater.stop()
 
+    assert updater.get_stats()["failed_count"] == 1
+
+
+def test_definitive_provider_circuit_failure_waits_and_retries_same_batch(monkeypatch):
+    attempts = []
+    sleeps = []
+
+    def add(**_kwargs):
+        attempts.append(len(attempts) + 1)
+        if len(attempts) == 1:
+            raise RuntimeError("Error code: 503 - provider circuit is open")
+        return SimpleNamespace(uuid_="episode-1")
+
+    updater = _updater(monkeypatch, add)
+    monkeypatch.setattr(updater_module.time, "sleep", sleeps.append)
+
+    updater._send_batch_activities([_activity()], "twitter")
+
+    assert attempts == [1, 2]
+    assert sleeps == [30]
+    assert updater.get_stats()["failed_count"] == 0
+    assert updater.get_stats()["items_sent"] == 1
+
+
+def test_ambiguous_write_failure_is_not_replayed(monkeypatch):
+    attempts = []
+
+    def add(**_kwargs):
+        attempts.append(len(attempts) + 1)
+        raise RuntimeError("connection dropped after write")
+
+    updater = _updater(monkeypatch, add)
+    updater._send_batch_activities([_activity()], "twitter")
+
+    assert attempts == [1]
     assert updater.get_stats()["failed_count"] == 1
 
 

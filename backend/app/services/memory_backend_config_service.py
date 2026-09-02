@@ -8,12 +8,13 @@ from urllib.parse import urlparse
 from ..config import Config
 from .credential_cipher import CredentialCipher
 from .model_config_store import ModelConfigStore
+from ..models.database import unified_database_path
 
 
 class MemoryBackendConfigService:
     def __init__(self, store=None, environment=None):
         root = Path(Config.UPLOAD_FOLDER) / "model-config"
-        self.store = store or ModelConfigStore(root / "models.db", CredentialCipher(root / "master.key"))
+        self.store = store or ModelConfigStore(unified_database_path(), CredentialCipher(root / "master.key"))
         self.environment = environment if environment is not None else os.environ
 
     def initialize_from_environment(self):

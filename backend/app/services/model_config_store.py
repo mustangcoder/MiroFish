@@ -24,6 +24,7 @@ from ..models.model_config import (
 )
 from .credential_cipher import CredentialCipher
 from .provider_catalog import infer_vendor, protocol_capability
+from .model_metadata import known_context_window
 
 
 class ModelConfigStore:
@@ -105,6 +106,7 @@ class ModelConfigStore:
             self._migrate_provider_protocol_schema(connection)
             self._migrate_connection_protocol_rows(connection)
             self._migrate_role_assignment_protocols(connection)
+            self._migrate_model_context_windows(connection)
 
     def _migrate_provider_protocol_schema(self, connection):
         rows = connection.execute(
@@ -208,6 +210,41 @@ class ModelConfigStore:
             INSERT INTO model_config_state VALUES ('multi_protocol_schema_version', '1')
             ON CONFLICT(state_key) DO UPDATE SET state_value=excluded.state_value
             """
+        )
+
+    def _migrate_model_context_windows(self, connection):
+        for row in connection.execute("SELECT role,config_json FROM model_role_drafts").fetchall():
+            if row["role"] == ModelRole.EMBEDDING.value:
+                continue
+            config = json.loads(row["config_json"])
+            context_window = known_context_window(config.get("model", ""))
+            if config.get("context_window_tokens") is None and context_window is not None:
+                config["context_window_tokens"] = context_window
+                connection.execute(
+                    "UPDATE model_role_drafts SET config_json=? WHERE role=?",
+                    (json.dumps(config, ensure_ascii=False), row["role"]),
+                )
+
+        for table, key in (("model_config_versions", "version_id"), ("project_model_snapshots", "project_id")):
+            for row in connection.execute(f"SELECT {key},assignments_json FROM {table}").fetchall():
+                assignments = json.loads(row["assignments_json"])
+                changed = False
+                for role, config in assignments.items():
+                    if role == ModelRole.EMBEDDING.value:
+                        continue
+                    context_window = known_context_window(config.get("model", ""))
+                    if config.get("context_window_tokens") is None and context_window is not None:
+                        config["context_window_tokens"] = context_window
+                        changed = True
+                if changed:
+                    connection.execute(
+                        f"UPDATE {table} SET assignments_json=? WHERE {key}=?",
+                        (json.dumps(assignments, ensure_ascii=False), row[key]),
+                    )
+
+        connection.execute(
+            "INSERT INTO model_config_state VALUES ('model_context_window_version', '1') "
+            "ON CONFLICT(state_key) DO UPDATE SET state_value=excluded.state_value"
         )
 
     def save_memory_backend_config(self, config):

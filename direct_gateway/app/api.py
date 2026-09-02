@@ -7,10 +7,31 @@ import uuid
 from flask import Flask, jsonify, request
 
 from .provider import CircuitOpenError
+from .responses_client import ProviderResponseError
 
 
-def _error(message, status):
-    return jsonify({"error": {"message": message, "type": "gateway_error"}}), status
+def _error(message, status, code=None):
+    payload = {"message": message, "type": "gateway_error"}
+    if code:
+        payload["code"] = code
+    return jsonify({"error": payload}), status
+
+
+def _provider_error(error):
+    if isinstance(error, ProviderResponseError):
+        return _error(
+            "LLM provider is temporarily unavailable" if error.retryable else "LLM provider rejected the request",
+            503 if error.retryable else 400,
+            error.code,
+        )
+    status = getattr(error, "status_code", None) or getattr(getattr(error, "response", None), "status_code", None)
+    if status == 429:
+        return _error("LLM provider rate limited the request", 429, "rate_limited")
+    if status == 400:
+        return _error("LLM provider rejected the request", 400, "upstream_invalid_request")
+    if status and status >= 500:
+        return _error("LLM provider is temporarily unavailable", 503, "upstream_error")
+    return _error("LLM provider request failed", 502)
 
 
 def _responses_messages(payload):
@@ -23,8 +44,24 @@ def _responses_messages(payload):
         messages.append({"role": "user", "content": input_value})
     elif isinstance(input_value, list):
         for item in input_value:
-            if not isinstance(item, dict) or item.get("role") not in {"system", "developer", "user", "assistant"}:
+            if not isinstance(item, dict):
                 raise ValueError("input items must be messages")
+            if item.get("type") == "function_call":
+                messages.append({
+                    "role": "assistant",
+                    "content": "",
+                    "tool_calls": [{
+                        "id": item.get("call_id") or item.get("id", ""),
+                        "type": "function",
+                        "function": {"name": item.get("name", ""), "arguments": item.get("arguments", "{}")},
+                    }],
+                })
+                continue
+            if item.get("type") == "function_call_output":
+                messages.append({"role": "tool", "tool_call_id": item.get("call_id", ""), "content": str(item.get("output", ""))})
+                continue
+            if item.get("role") not in {"system", "developer", "user", "assistant"}:
+                raise ValueError("input items must be messages or function calls")
             content = item.get("content", "")
             if isinstance(content, list):
                 content = "".join(
@@ -55,6 +92,10 @@ def _chat_request_from_response(payload):
             request_value[key] = payload[key]
     if payload.get("max_output_tokens") is not None:
         request_value["max_tokens"] = payload["max_output_tokens"]
+    if payload.get("truncation") is not None:
+        if payload["truncation"] not in {"auto", "disabled"}:
+            raise ValueError("truncation must be auto or disabled")
+        request_value["truncation"] = payload["truncation"]
     return request_value
 
 
@@ -121,9 +162,22 @@ def create_app(*, router, config, account_reader=None, device_logins=None, logou
         except ValueError as error:
             return _error(str(error), 400)
         except Exception as error:
-            app.logger.error("direct provider failed error_type=%s status_code=%s", type(error).__name__, getattr(error, "status_code", None))
-            return _error("LLM provider request failed", 502)
-        response = jsonify({"id": f"chatcmpl-{uuid.uuid4().hex}", "object": "chat.completion", "created": int(time.time()), "model": result.model, "choices": [{"index": 0, "message": {"role": "assistant", "content": result.content}, "finish_reason": "stop"}], "usage": result.usage})
+            response = getattr(error, "response", None)
+            app.logger.error("direct provider failed error_type=%s status_code=%s", type(error).__name__, getattr(error, "status_code", None) or getattr(response, "status_code", None))
+            return _provider_error(error)
+        tool_calls = [
+            {
+                "id": item.get("call_id") or item.get("id", ""),
+                "type": "function",
+                "function": {"name": item.get("name", ""), "arguments": item.get("arguments", "{}")},
+            }
+            for item in (result.output or [])
+            if item.get("type") == "function_call"
+        ]
+        message = {"role": "assistant", "content": result.content or None}
+        if tool_calls:
+            message["tool_calls"] = tool_calls
+        response = jsonify({"id": f"chatcmpl-{uuid.uuid4().hex}", "object": "chat.completion", "created": int(time.time()), "model": result.model, "choices": [{"index": 0, "message": message, "finish_reason": "tool_calls" if tool_calls else "stop"}], "usage": result.usage})
         response.headers["X-MiroFish-Provider"] = result.provider
         return response
 
@@ -143,22 +197,24 @@ def create_app(*, router, config, account_reader=None, device_logins=None, logou
         except ValueError as error:
             return _error(str(error), 400)
         except Exception as error:
-            app.logger.error("direct provider failed error_type=%s status_code=%s", type(error).__name__, getattr(error, "status_code", None))
-            return _error("LLM provider request failed", 502)
+            response = getattr(error, "response", None)
+            app.logger.error("direct provider failed error_type=%s status_code=%s", type(error).__name__, getattr(error, "status_code", None) or getattr(response, "status_code", None))
+            return _provider_error(error)
         response_id = f"resp_{uuid.uuid4().hex}"
+        output = result.output or [{
+            "id": f"msg_{uuid.uuid4().hex}",
+            "type": "message",
+            "status": "completed",
+            "role": "assistant",
+            "content": [{"type": "output_text", "text": result.content, "annotations": []}],
+        }]
         response = jsonify({
             "id": response_id,
             "object": "response",
             "created_at": int(time.time()),
             "status": "completed",
             "model": result.model,
-            "output": [{
-                "id": f"msg_{uuid.uuid4().hex}",
-                "type": "message",
-                "status": "completed",
-                "role": "assistant",
-                "content": [{"type": "output_text", "text": result.content, "annotations": []}],
-            }],
+            "output": output,
             "usage": result.usage,
         })
         response.headers["X-MiroFish-Provider"] = result.provider

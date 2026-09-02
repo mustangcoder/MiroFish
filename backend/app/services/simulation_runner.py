@@ -659,6 +659,9 @@ class SimulationRunner:
                         reddit_actions_log, reddit_position, state, "reddit"
                     )
 
+                if cls._check_all_platforms_completed(state):
+                    cls._finalize_completed_platforms(state)
+
                 # 更新状态
                 cls._save_run_state(state)
                 time.sleep(2)
@@ -685,6 +688,7 @@ class SimulationRunner:
                     state = latest_state
 
                 if state.runner_status not in {
+                    RunnerStatus.COMPLETED,
                     RunnerStatus.STOPPED,
                     RunnerStatus.FAILED,
                 }:
@@ -770,6 +774,63 @@ class SimulationRunner:
                 except Exception:
                     pass
                 cls._stderr_files.pop(simulation_id, None)
+
+    @classmethod
+    def _finalize_completed_platforms(cls, state: SimulationRunState) -> bool:
+        """Drain graph ingestion and publish COMPLETED without closing IPC env."""
+        if state.runner_status == RunnerStatus.COMPLETED:
+            return True
+        if (
+            state.runner_status != RunnerStatus.RUNNING
+            or not cls._check_all_platforms_completed(state)
+        ):
+            return False
+
+        simulation_id = state.simulation_id
+        with cls._finalization_lock(simulation_id):
+            if state.runner_status == RunnerStatus.COMPLETED:
+                return True
+            if state.runner_status != RunnerStatus.RUNNING:
+                return False
+
+            if cls._graph_memory_enabled.get(simulation_id, False):
+                state.runner_status = RunnerStatus.STOPPING
+                cls._save_run_state(state)
+                cls._sync_simulation_status(simulation_id, RunnerStatus.STOPPING)
+                try:
+                    ZepGraphMemoryManager.stop_updater(simulation_id)
+                    cls._graph_memory_enabled.pop(simulation_id, None)
+                    logger.info(
+                        "平台轮次完成，图谱记忆写入已排空: simulation_id=%s",
+                        simulation_id,
+                    )
+                except Exception as error:
+                    state.runner_status = RunnerStatus.FAILED
+                    state.completed_at = datetime.now().isoformat()
+                    state.error = f"Zep图谱写入未完整完成: {error}"
+                    cls._save_run_state(state)
+                    cls._sync_simulation_status(
+                        simulation_id, RunnerStatus.FAILED, state.error
+                    )
+                    logger.error(
+                        "平台轮次完成但图谱写入失败: simulation_id=%s, error=%s",
+                        simulation_id,
+                        error,
+                    )
+                    return True
+
+            state.runner_status = RunnerStatus.COMPLETED
+            state.completed_at = datetime.now().isoformat()
+            state.error = None
+            cls._save_run_state(state)
+            cls._sync_simulation_status(
+                simulation_id, RunnerStatus.COMPLETED, None
+            )
+            logger.info(
+                "模拟轮次与图谱写入均已完成，命令环境继续存活: %s",
+                simulation_id,
+            )
+            return True
 
     @classmethod
     def _read_action_log(
@@ -1643,6 +1704,28 @@ class SimulationRunner:
         return running
 
     # ============== Interview 功能 ==============
+
+    @classmethod
+    def reconcile_stale_environment_statuses(cls) -> int:
+        """启动时纠正没有存活属主进程的历史 alive 状态。"""
+        corrected = 0
+        if not os.path.isdir(cls.RUN_STATE_DIR):
+            return corrected
+        for simulation_id in os.listdir(cls.RUN_STATE_DIR):
+            sim_dir = os.path.join(cls.RUN_STATE_DIR, simulation_id)
+            status_file = os.path.join(sim_dir, "env_status.json")
+            if not os.path.isfile(status_file):
+                continue
+            try:
+                with open(status_file, "r", encoding="utf-8") as handle:
+                    status = json.load(handle)
+            except (OSError, json.JSONDecodeError):
+                continue
+            if status.get("status") != "alive":
+                continue
+            if not SimulationIPCClient(sim_dir).check_env_alive():
+                corrected += 1
+        return corrected
 
     @classmethod
     def check_env_alive(cls, simulation_id: str) -> bool:

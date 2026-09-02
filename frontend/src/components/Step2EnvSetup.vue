@@ -60,6 +60,9 @@
           <p class="description">
             {{ $t('step2.generateAgentPersonaDesc') }}
           </p>
+          <p v-if="recoveredProfiles > 0" class="description recovery-note">
+            {{ $t('step2.recoveredPersonaProgress', { current: recoveredProfiles, total: expectedTotal || '?' }) }}
+          </p>
 
           <!-- Profiles Stats -->
           <div v-if="profiles.length > 0" class="stats-grid">
@@ -662,6 +665,7 @@ const progressMessage = ref('')
 const profiles = ref([])
 const entityTypes = ref([])
 const expectedTotal = ref(null)
+const recoveredProfiles = ref(0)
 const simulationConfig = ref(null)
 const selectedProfile = ref(null)
 const showProfilesDetail = ref(true)
@@ -776,6 +780,33 @@ const selectProfile = (profile) => {
   selectedProfile.value = profile
 }
 
+const restorePreparedSimulation = async () => {
+  try {
+    const res = await getPrepareStatus({ simulation_id: props.simulationId })
+    if (res.success && res.data && (res.data.status === 'ready' || res.data.already_prepared)) {
+      addLog(t('log.detectedExistingPrep'))
+      await loadPreparedData()
+      return true
+    }
+    if (res.success && res.data?.task_id && ['pending', 'processing', 'interrupted'].includes(res.data.status)) {
+      taskId.value = res.data.task_id
+      prepareProgress.value = res.data.progress || 0
+      recoveredProfiles.value = res.data.recovered_profiles || 0
+      expectedTotal.value = res.data.total_profiles || null
+      if (recoveredProfiles.value > 0) {
+        addLog(t('log.prepareRecovered', { current: recoveredProfiles.value, total: expectedTotal.value || '?' }))
+      }
+      emit('update-status', 'processing')
+      startPolling()
+      startProfilesPolling()
+      return true
+    }
+  } catch (err) {
+    console.warn('检查已持久化准备状态失败:', err)
+  }
+  return false
+}
+
 // 自动开始准备模拟
 const startPrepareSimulation = async () => {
   if (!props.simulationId) {
@@ -805,6 +836,7 @@ const startPrepareSimulation = async () => {
       }
 
       taskId.value = res.data.task_id
+      recoveredProfiles.value = res.data.recovered_profiles || 0
       addLog(t('log.prepareTaskStarted'))
       addLog(t('log.prepareTaskId', { taskId: res.data.task_id }))
 
@@ -869,6 +901,8 @@ const pollPrepareStatus = async () => {
       // 更新进度
       prepareProgress.value = data.progress || 0
       progressMessage.value = data.message || ''
+      recoveredProfiles.value = data.recovered_profiles || data.progress_detail?.recovered_profiles || recoveredProfiles.value
+      expectedTotal.value = data.total_profiles || expectedTotal.value
 
       // 解析阶段信息并输出详细日志
       if (data.progress_detail) {
@@ -1086,11 +1120,12 @@ watch(() => props.systemLogs?.length, () => {
   })
 })
 
-onMounted(() => {
-  // 自动开始准备流程
+onMounted(async () => {
+  // 历史记录恢复时先读取持久化状态，只有确实未准备才创建任务。
   if (props.simulationId) {
     addLog(t('log.step2Init'))
-    startPrepareSimulation()
+    const restored = await restorePreparedSimulation()
+    if (!restored) await startPrepareSimulation()
   }
 })
 

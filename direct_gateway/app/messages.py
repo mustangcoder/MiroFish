@@ -13,6 +13,15 @@ def build_responses_payload(request: dict[str, Any], model: str) -> dict[str, An
         content = message.get("content", "")
         if role in {"system", "developer"}:
             instructions.append(str(content))
+        elif role == "assistant" and message.get("tool_calls"):
+            for tool_call in message["tool_calls"]:
+                function = tool_call.get("function") or {}
+                items.append({
+                    "type": "function_call",
+                    "call_id": tool_call.get("id", ""),
+                    "name": function.get("name", ""),
+                    "arguments": function.get("arguments", "{}"),
+                })
         elif role in {"user", "assistant"}:
             items.append({"role": role, "content": [{"type": "input_text" if role == "user" else "output_text", "text": str(content)}]})
         elif role == "tool":

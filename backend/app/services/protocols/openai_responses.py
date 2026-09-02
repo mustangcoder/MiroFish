@@ -26,6 +26,8 @@ class OpenAIResponsesClient:
                 for tool in request.tools
                 if tool.get("type") == "function"
             ]
+        if request.truncation:
+            kwargs["truncation"] = request.truncation
         response = self.client.responses.create(**kwargs)
         return TextGenerationResult(
             text=response.output_text or "",

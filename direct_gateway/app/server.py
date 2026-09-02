@@ -13,7 +13,7 @@ from .device_sessions import DeviceLoginManager
 config = DirectConfig.from_env()
 store = TokenStore(config.credentials_path)
 manager = TokenManager(store, DeviceCodeClient(config=config))
-direct = ResponsesClient(endpoint=config.codex_endpoint, model=config.model, token_manager=manager, timeout=config.request_timeout_seconds)
+direct = ResponsesClient(endpoint=config.codex_endpoint, model=config.model, token_manager=manager, timeout=config.request_timeout_seconds, max_concurrency=config.max_concurrency)
 fallback = None
 if __import__("os").environ.get("FALLBACK_LLM_API_KEY"):
     client = OpenAI(api_key=__import__("os").environ["FALLBACK_LLM_API_KEY"], base_url=__import__("os").environ.get("FALLBACK_LLM_BASE_URL"))

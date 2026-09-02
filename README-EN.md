@@ -123,6 +123,8 @@ Supports OpenAI Responses, OpenAI Chat Completions, and Anthropic Messages. For 
 
 Docker persists Hugging Face assets in the `huggingface_cache` volume and pre-downloads the OASIS Twitter recommender through the separate `hf-prefetch` service. Simulation startup verifies the cache again and fails clearly after a 15-minute download timeout instead of remaining indefinitely in the running state.
 
+MiroFish-owned model configuration, background tasks, and environment-preparation checkpoints share `backend/uploads/mirofish.db`. Upgrades idempotently import the legacy `model-config/models.db` and `tasks/tasks.db` while retaining those source files. OASIS Twitter and Reddit databases remain separate per simulation. Each completed persona is committed as a checkpoint, so an abnormal service restart reuses the original task and continues with only the missing personas.
+
 ```env
 LLM_API_KEY=your_api_key
 LLM_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
@@ -167,6 +169,10 @@ GRAPHITI_EMBEDDING_MODEL=text-embedding-v4
 ```
 
 > `OPENAI_API_KEY` / `OPENAI_BASE_URL` are automatically mapped from `LLM_API_KEY` / `LLM_BASE_URL` — no need to configure them separately. To specify a different LLM for Graphiti, explicitly set `OPENAI_API_KEY` and `OPENAI_BASE_URL`.
+
+> **Ontology type migration:** Newly built local graphs apply the project ontology during Graphiti extraction and preserve business labels such as `CompanyExecutive` and `ListedCompany` on Neo4j nodes. Graphs built before this change that contain only `Entity` / `GenericEntity` are not rewritten automatically; force-rebuild the project graph and prepare the simulation environment again to regenerate profiles. Zep Cloud ontology writes are unchanged, while both backends share the same person/institution/region/event classifier.
+
+> **Model context:** Text-model roles in Configuration Center require a “Maximum context Tokens” value. Known GPT-5.6 models autofill `1,050,000`; unknown models require a manual value. Simulations dynamically reserve 10% of the selected window (minimum 16K, maximum 128K) for output and reasoning. When input exceeds the remaining budget, the full persona and system instructions are preserved while the oldest conversation history is removed; tool calls and their results remain paired. Standard Responses providers also receive `truncation: auto`; ChatGPT Subscription OAuth relies on local compaction because its private Codex endpoint rejects that field. This setting is independent of Graphiti's 9,500-character Episode limit.
 
 #### Boost LLM Configuration (Optional)
 

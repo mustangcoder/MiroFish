@@ -7,7 +7,6 @@ OASIS模拟管理器
 import os
 import json
 import shutil
-import shutil
 from typing import Dict, Any, List, Optional
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -18,6 +17,7 @@ from ..utils.logger import get_logger
 from .zep_entity_reader import ZepEntityReader, FilteredEntities
 from .oasis_profile_generator import OasisProfileGenerator, OasisAgentProfile
 from .simulation_config_generator import SimulationConfigGenerator, SimulationParameters
+from .simulation_prepare_store import SimulationPrepareStore
 from ..utils.locale import t
 
 logger = get_logger('mirofish.simulation')
@@ -250,7 +250,9 @@ class SimulationManager:
         defined_entity_types: Optional[List[str]] = None,
         use_llm_for_profiles: bool = True,
         progress_callback: Optional[callable] = None,
-        parallel_profile_count: int = 3
+        parallel_profile_count: int = 3,
+        prepare_run_id: Optional[str] = None,
+        prepare_store: Optional[SimulationPrepareStore] = None,
     ) -> SimulationState:
         """
         准备模拟环境（全程自动化）
@@ -322,6 +324,21 @@ class SimulationManager:
 
             # ========== 阶段2: 生成Agent Profile ==========
             total_entities = len(filtered.entities)
+            checkpoint_store = prepare_store or (
+                SimulationPrepareStore() if prepare_run_id else None
+            )
+            restored_profiles = {}
+            if checkpoint_store and prepare_run_id:
+                checkpoint_store.update_run(
+                    prepare_run_id,
+                    status="running",
+                    stage="profiles",
+                    total_profiles=total_entities,
+                )
+                restored_profiles = {
+                    item["entity_uuid"]: item["profile"]
+                    for item in checkpoint_store.load_completed_profiles(prepare_run_id)
+                }
 
             if progress_callback:
                 progress_callback(
@@ -362,7 +379,20 @@ class SimulationManager:
                 graph_id=state.graph_id,  # 传入graph_id用于Zep检索
                 parallel_count=parallel_profile_count,  # 并行生成数量
                 realtime_output_path=realtime_output_path,  # 实时保存路径
-                output_platform=realtime_platform  # 输出格式
+                output_platform=realtime_platform,  # 输出格式
+                existing_profiles=restored_profiles,
+                checkpoint_callback=(
+                    lambda index, entity, profile: checkpoint_store.save_profile(
+                        prepare_run_id,
+                        entity.uuid,
+                        index,
+                        profile.user_id,
+                        entity.get_entity_type() or "Entity",
+                        profile.to_dict(),
+                    )
+                    if checkpoint_store and prepare_run_id
+                    else None
+                ),
             )
 
             state.profiles_count = len(profiles)
@@ -403,6 +433,8 @@ class SimulationManager:
                 )
 
             # ========== 阶段3: LLM智能生成模拟配置 ==========
+            if checkpoint_store and prepare_run_id:
+                checkpoint_store.update_run(prepare_run_id, stage="config")
             if progress_callback:
                 progress_callback(
                     "generating_config", 0,
@@ -462,6 +494,10 @@ class SimulationManager:
             # 更新状态
             state.status = SimulationStatus.READY
             self._save_simulation_state(state)
+            if checkpoint_store and prepare_run_id:
+                checkpoint_store.update_run(
+                    prepare_run_id, status="completed", stage="completed", error=None
+                )
 
             logger.info(f"模拟准备完成: {simulation_id}, "
                        f"entities={state.entities_count}, profiles={state.profiles_count}")
@@ -475,6 +511,10 @@ class SimulationManager:
             state.status = SimulationStatus.FAILED
             state.error = str(e)
             self._save_simulation_state(state)
+            if prepare_run_id:
+                (prepare_store or SimulationPrepareStore()).update_run(
+                    prepare_run_id, status="failed", error=str(e)
+                )
             raise
 
     def get_simulation(self, simulation_id: str) -> Optional[SimulationState]:

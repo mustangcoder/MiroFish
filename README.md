@@ -123,6 +123,8 @@ cp .env.example .env
 
 Docker 部署会将 Hugging Face 模型缓存持久化到 `huggingface_cache` 卷，并在独立的 `hf-prefetch` 服务中预下载 OASIS Twitter 推荐模型。推演启动前会再次检查缓存；下载超过 15 分钟会明确失败，而不会让任务无限停留在运行中。
 
+MiroFish 自有的模型配置、后台任务和环境准备检查点统一保存在 `backend/uploads/mirofish.db`。升级时会幂等导入旧的 `model-config/models.db` 与 `tasks/tasks.db`，并保留旧文件。OASIS 生成的 Twitter/Reddit 平台数据库仍按模拟单独保存。环境准备每完成一个人设都会提交检查点；服务异常重启后会复用原任务并从缺失的人设继续。
+
 ```env
 LLM_API_KEY=your_api_key
 LLM_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
@@ -167,6 +169,10 @@ GRAPHITI_EMBEDDING_MODEL=text-embedding-v4
 ```
 
 > `OPENAI_API_KEY` / `OPENAI_BASE_URL` 会自动从 `LLM_API_KEY` / `LLM_BASE_URL` 映射，无需重复配置。如需单独指定 Graphiti 使用的 LLM，可显式设置 `OPENAI_API_KEY` 和 `OPENAI_BASE_URL`。
+
+> **本体类型迁移：** 新构建的本地图谱会把项目本体应用到 Graphiti 抽取，并在 Neo4j 节点上保留 `CompanyExecutive`、`ListedCompany` 等业务标签。升级前已构建且只有 `Entity` / `GenericEntity` 的图谱不会被自动改写；请在项目页面强制重建图谱，并重新准备推演环境以生成人设。Zep Cloud 的本体写入流程不变，但会共享相同的人物/机构/地区/事件分类逻辑。
+
+> **模型上下文：** 配置中心的文本模型职责需要设置“最大上下文 Tokens”。已知 GPT-5.6 模型会自动填充 `1,050,000`，未知模型需要手工填写。模拟会按模型窗口动态预留 10%（最少 16K、最多 128K）用于输出和推理，超出输入预算时保留完整人设与系统提示，并从最旧的对话历史开始裁剪；工具调用和对应结果始终成对保留。标准 Responses Provider 还会使用 `truncation: auto` 作为保护；ChatGPT Subscription OAuth 依赖本地裁剪，因为其私有 Codex 接口不接受该字段。此设置与 Graphiti 的 9,500 字符 Episode 上限相互独立。
 
 #### 加速 LLM 配置（可选）
 

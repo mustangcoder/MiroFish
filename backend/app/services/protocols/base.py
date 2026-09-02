@@ -12,6 +12,7 @@ class TextGenerationRequest:
     max_output_tokens: int | None = None
     response_format: dict[str, Any] | None = None
     tools: list[dict[str, Any]] | None = None
+    truncation: str | None = None
 
 
 @dataclass(frozen=True)

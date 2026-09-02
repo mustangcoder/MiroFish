@@ -8,6 +8,7 @@ services:
       - .env
     environment:
       DIRECT_GATEWAY_TOKEN: ${DIRECT_GATEWAY_TOKEN:-mirofish-local-only}
+      DIRECT_MAX_CONCURRENCY: ${DIRECT_MAX_CONCURRENCY:-8}
     expose:
       - "8090"
     volumes:
