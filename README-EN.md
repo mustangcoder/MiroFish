@@ -4,9 +4,9 @@
 
 # MiroFish-Local
 
-**Local-first fork of [MiroFish](https://github.com/666ghj/MiroFish) — with Graphiti + Neo4j for fully local deployment. Your data stays on your machine.**
+**Local-first fork of [MiroFish](https://github.com/666ghj/MiroFish) — with Graphiti + Neo4j for locally stored knowledge graphs.**
 
-*A multi-agent swarm intelligence engine that simulates public opinion, market sentiment, and social dynamics. Runs entirely in your local environment.*
+*A multi-agent swarm intelligence engine for public opinion, market sentiment, and social dynamics, with local graph, configuration, and task storage.*
 
 [![GitHub Stars](https://img.shields.io/github/stars/tt-a1i/MiroFish-local?style=flat-square)](https://github.com/tt-a1i/MiroFish-local/stargazers)
 [![GitHub Forks](https://img.shields.io/github/forks/tt-a1i/MiroFish-local?style=flat-square)](https://github.com/tt-a1i/MiroFish-local/network)
@@ -23,18 +23,35 @@
 
 **MiroFish-Local** adds a **Graphiti + Neo4j local mode** on top of the original, allowing you to run the entire simulation pipeline without any cloud-based memory service. The original Zep Cloud mode is fully preserved — switch between modes with a single environment variable.
 
-### How it differs from upstream MiroFish
+## 🔀 Differences from the Official Project
 
-| Feature | Original MiroFish | MiroFish-Local |
-|---------|:-----------------:|:--------------:|
-| Memory / Knowledge Graph | Zep Cloud (remote) | **Graphiti + Neo4j (local)** or Zep Cloud |
-| Cloud Dependency | Requires Zep Cloud API | **Optional: supports both Cloud and local modes** |
-| Data Privacy | Data passes through third-party cloud | **Local mode keeps all data on-premise** |
-| Entity Extraction | Built into Zep Cloud | **Local LLM extraction (via Graphiti)** |
-| Deployment | Requires Zep Cloud account | **Docker Compose one-click Neo4j startup** |
-| Mode Switching | N/A | **`ZEP_BACKEND=cloud\|graphiti`** |
+This repository is a community-maintained enhancement fork of [666ghj/MiroFish](https://github.com/666ghj/MiroFish). It is **not an official release and does not represent the upstream maintainers**. The comparison below is based on the official `main` branch as of **2026-09-02**. Upstream development may narrow or remove some differences, so also consult the [official README](https://github.com/666ghj/MiroFish/blob/main/README.md).
 
-> In short: if you want your **data to stay local**, or need to run MiroFish in an **air-gapped environment**, MiroFish-Local is the version for you.
+| Area | Official project (comparison baseline) | MiroFish-Local |
+|------|----------------------------------------|----------------|
+| Primary focus | General-purpose multi-agent prediction engine using Zep Cloud by default | Preserves the upstream workflow while emphasizing local deployment, model connectivity, and long-running task reliability |
+| Graph service | Zep Cloud | Select Zep Cloud or **Graphiti + Neo4j 5.26** in Configuration Center |
+| Local graph typing | Not applicable | Applies the project ontology to Graphiti, preserves business labels, and distinguishes people, institutions, regions, and events |
+| Text protocols | A single OpenAI SDK-compatible LLM configured through environment variables | Protocol layer supports **OpenAI Responses, OpenAI Chat Completions, and Anthropic Messages** |
+| Embeddings | Configured through the upstream environment | Separate OpenAI Embeddings protocol; its Provider and model can differ from text generation |
+| Model connectivity | API key, Base URL, and model name in `.env` | Configuration Center separates Provider, protocol, authentication, and model; supports API Key, no-auth HTTP, and a ChatGPT Subscription OAuth Gateway |
+| Model roles | Primary model plus an optional boost model | Independent high-capability, fast, and Embedding roles with project-level configuration snapshots |
+| Context management | Relies primarily on model/API defaults | Configurable maximum context, dynamic trimming with paired tool calls/results, and automatic truncation for standard Responses endpoints |
+| Configuration persistence | Primarily `.env` based | Models, graph backend, task history, and preparation checkpoints share `backend/uploads/mirofish.db` |
+| Environment preparation recovery | A page or service interruption may restart preparation | Commits every completed persona to SQLite and resumes only missing personas after navigation or service restart |
+| Simulation graph ingestion | Dual-platform simulation with dynamic memory updates | Adds same-round batching, character/Token budgets, rate-limit backoff, completion barriers, and exact recovery of missing Episodes |
+| Workflow history | Upstream baseline workflow | Routes history entries to the latest persisted stage instead of regenerating personas or restarting simulations |
+| Reports and interviews | ReportAgent interacts with the simulation environment and graph tools | Verifies the real OASIS process, marks stale `alive` files as `stale`, and immediately falls back to graph search when interviews are unavailable |
+| Docker startup | Copy `.env`, then run `docker compose up -d` with the official image | `npm run docker:up` builds current local code, starts Neo4j/Gateway, initializes SQLite idempotently, and waits for health checks |
+| Hugging Face assets | Downloaded by the runtime environment | Persistent cache, pre-download, and explicit download timeout |
+
+### Compatibility and Maintenance Boundaries
+
+- **Local does not automatically mean fully offline.** Graphiti and Neo4j can stay on the machine, but a selected text or Embedding Provider may still be a remote HTTP service. Model data remains local only when every Provider points to a local endpoint.
+- **The ChatGPT Subscription OAuth Gateway is not an official public OpenAI API.** It depends on internal ChatGPT/Codex endpoints and may break when upstream protocols, permissions, or rate-limit policies change. Prefer a stable official API-key integration for production use.
+- **Existing graphs are not automatically retyped.** Local Graphiti graphs built before this change with only `Entity` / `GenericEntity` labels must be force-rebuilt to receive ontology labels and improved persona classification.
+- **Zep Cloud and local Graphiti are not guaranteed to produce identical results.** Extraction, deduplication, search, and temporal relationship behavior can differ; rebuild and validate the graph after switching.
+- Treat the official repository as the source of truth for upstream features, issues, and releases. Enhancements and defects introduced by this fork are maintained separately here.
 
 ## ⚡ 3-Minute Quick Demo
 
