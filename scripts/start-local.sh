@@ -10,7 +10,7 @@ DOCKER_BIN="${DOCKER_BIN:-docker}"
 CURL_BIN="${CURL_BIN:-curl}"
 STARTUP_HEALTH_ATTEMPTS="${STARTUP_HEALTH_ATTEMPTS:-90}"
 STARTUP_HEALTH_INTERVAL="${STARTUP_HEALTH_INTERVAL:-2}"
-export COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-mirofish}"
+export COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-mirofishplus}"
 COMPOSE=("$DOCKER_BIN" compose -f docker-compose.yml -f docker-compose.local.yml)
 
 if ! command -v "$DOCKER_BIN" >/dev/null 2>&1; then
@@ -37,6 +37,27 @@ fi
 
 mkdir -p backend/uploads
 
+if [[ "${SKIP_LEGACY_DOCKER_MIGRATION:-0}" != "1" ]]; then
+  legacy_containers=(
+    mirofish
+    mirofish-bootstrap
+    mirofish-direct-oauth-gateway
+    mirofish-hf-prefetch
+    mirofish-neo4j
+  )
+  for container in "${legacy_containers[@]}"; do
+    if "$DOCKER_BIN" container inspect "$container" >/dev/null 2>&1; then
+      echo "停止旧容器并保留现场: $container"
+      "$DOCKER_BIN" stop "$container" >/dev/null
+    fi
+  done
+
+  "$SCRIPT_DIR/migrate-docker-volume.sh" mirofish_direct_oauth_credentials mirofishplus_direct_oauth_credentials
+  "$SCRIPT_DIR/migrate-docker-volume.sh" mirofish_huggingface_cache mirofishplus_huggingface_cache
+  "$SCRIPT_DIR/migrate-docker-volume.sh" mirofish_neo4j_data mirofishplus_neo4j_data
+  "$SCRIPT_DIR/migrate-docker-volume.sh" mirofish_neo4j_logs mirofishplus_neo4j_logs
+fi
+
 diagnose_failure() {
   local status=$?
   echo "本地启动失败，当前服务状态：" >&2
@@ -46,10 +67,10 @@ diagnose_failure() {
 }
 trap diagnose_failure ERR
 
-echo "正在构建并启动 Neo4j、Gateway、数据库初始化任务和 MiroFish..."
+echo "正在构建并启动 Neo4j、Gateway、数据库初始化任务和 MiroFishPlus..."
 "${COMPOSE[@]}" up -d --build
 
-bootstrap_exit="$($DOCKER_BIN inspect -f '{{.State.ExitCode}}' mirofish-bootstrap)"
+bootstrap_exit="$($DOCKER_BIN inspect -f '{{.State.ExitCode}}' mirofishplus-bootstrap)"
 if [[ "$bootstrap_exit" != "0" ]]; then
   echo "错误：数据库初始化失败，bootstrap exit_code=$bootstrap_exit" >&2
   "${COMPOSE[@]}" logs --tail=200 bootstrap >&2 || true
@@ -66,12 +87,12 @@ for ((attempt = 1; attempt <= STARTUP_HEALTH_ATTEMPTS; attempt++)); do
 done
 
 if [[ "$healthy" != "true" ]]; then
-  echo "错误：MiroFish 后端健康检查超时。" >&2
+  echo "错误：MiroFishPlus 后端健康检查超时。" >&2
   false
 fi
 
 trap - ERR
-echo "MiroFish 已启动："
+echo "MiroFishPlus 已启动："
 echo "  前端：http://localhost:3000"
 echo "  后端：http://localhost:5001/health"
 echo "  Neo4j：http://localhost:7474"

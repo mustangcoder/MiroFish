@@ -1,11 +1,11 @@
 # 贡献指南
 
-感谢你对 MiroFish-Local 的关注！我们欢迎任何形式的贡献。
+感谢你对 MiroFishPlus 的关注！我们欢迎任何形式的贡献。
 
 ## 如何提交 Issue
 
-- **Bug 报告**：使用 [Bug Report](https://github.com/tt-a1i/MiroFish-local/issues/new?template=bug_report.yml) 模板
-- **功能建议**：使用 [Feature Request](https://github.com/tt-a1i/MiroFish-local/issues/new?template=feature_request.yml) 模板
+- **Bug 报告**：使用 [Bug Report](https://github.com/mustangcoder/MiroFish/issues/new?template=bug_report.yml) 模板
+- **功能建议**：使用 [Feature Request](https://github.com/mustangcoder/MiroFish/issues/new?template=feature_request.yml) 模板
 
 ## 如何提交 PR
 

@@ -48,6 +48,7 @@ def _run(project, docker, curl, calls, *, bootstrap_exit="0"):
         "STARTUP_HEALTH_ATTEMPTS": "1",
         "STARTUP_HEALTH_INTERVAL": "0",
         "FAKE_BOOTSTRAP_EXIT": bootstrap_exit,
+        "SKIP_LEGACY_DOCKER_MIGRATION": "1",
     }
     return subprocess.run(
         ["bash", "scripts/start-local.sh"],
@@ -68,7 +69,7 @@ def test_missing_env_is_created_and_compose_stack_is_started(tmp_path):
     assert (project / ".env").read_bytes() == (project / ".env.example").read_bytes()
     recorded = calls.read_text()
     assert "compose -f docker-compose.yml -f docker-compose.local.yml up -d --build" in recorded
-    assert "inspect -f {{.State.ExitCode}} mirofish-bootstrap" in recorded
+    assert "inspect -f {{.State.ExitCode}} mirofishplus-bootstrap" in recorded
 
 
 def test_existing_env_is_not_overwritten(tmp_path):

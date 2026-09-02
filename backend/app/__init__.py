@@ -1,5 +1,5 @@
 """
-MiroFish Backend - Flask应用工厂
+MiroFishPlus Backend - Flask应用工厂
 """
 
 import os
@@ -21,12 +21,17 @@ def create_app(config_class=Config):
     uses_default_config = config_class is Config
     if uses_default_config:
         from pathlib import Path
-        from .models.database import initialize_unified_database, unified_database_path
+        from .models.database import (
+            initialize_unified_database,
+            migrate_legacy_unified_database,
+            unified_database_path,
+        )
+        database_path = unified_database_path()
+        migrate_legacy_unified_database(database_path)
         from .models.task import TaskManager
         from .models.task_store import TaskStore
         from .services.credential_cipher import CredentialCipher
         from .services.model_config_store import ModelConfigStore
-        database_path = unified_database_path()
         key_path = Path(Config.UPLOAD_FOLDER) / "model-config" / "master.key"
         ModelConfigStore(database_path, CredentialCipher(key_path))
         TaskStore(database_path)
@@ -56,7 +61,7 @@ def create_app(config_class=Config):
     
     if should_log_startup:
         logger.info("=" * 50)
-        logger.info("MiroFish Backend 启动中...")
+        logger.info("MiroFishPlus Backend 启动中...")
         logger.info("=" * 50)
     
     # 启用CORS
@@ -108,9 +113,9 @@ def create_app(config_class=Config):
     # 健康检查
     @app.route('/health')
     def health():
-        return {'status': 'ok', 'service': 'MiroFish Backend'}
+        return {'status': 'ok', 'service': 'MiroFishPlus Backend'}
     
     if should_log_startup:
-        logger.info("MiroFish Backend 启动完成")
+        logger.info("MiroFishPlus Backend 启动完成")
     
     return app

@@ -1,16 +1,16 @@
 <div align="center">
 
-<img src="./static/image/MiroFish_logo_compressed.jpeg" alt="MiroFish-Local Logo" width="75%"/>
+<img src="./static/image/MiroFish_logo_compressed.jpeg" alt="MiroFishPlus Logo" width="75%"/>
 
-# MiroFish-Local
+# MiroFishPlus
 
-**Local-first fork of [MiroFish](https://github.com/666ghj/MiroFish) — with Graphiti + Neo4j for fully local deployment. Your data stays on your machine.**
+**An enhanced continuation of the official [MiroFish](https://github.com/666ghj/MiroFish) and the community [MiroFish-local](https://github.com/tt-a1i/MiroFish-local) project.**
 
-*A multi-agent swarm intelligence engine that simulates public opinion, market sentiment, and social dynamics. Runs entirely in your local environment.*
+*A multi-agent swarm intelligence engine for public opinion, market sentiment, and social dynamics, with local graph, configuration, and task storage.*
 
-[![GitHub Stars](https://img.shields.io/github/stars/tt-a1i/MiroFish-local?style=flat-square)](https://github.com/tt-a1i/MiroFish-local/stargazers)
-[![GitHub Forks](https://img.shields.io/github/forks/tt-a1i/MiroFish-local?style=flat-square)](https://github.com/tt-a1i/MiroFish-local/network)
-[![GitHub License](https://img.shields.io/github/license/tt-a1i/MiroFish-local?style=flat-square)](https://github.com/tt-a1i/MiroFish-local/blob/main/LICENSE)
+[![GitHub Stars](https://img.shields.io/github/stars/mustangcoder/MiroFish?style=flat-square)](https://github.com/mustangcoder/MiroFish/stargazers)
+[![GitHub Forks](https://img.shields.io/github/forks/mustangcoder/MiroFish?style=flat-square)](https://github.com/mustangcoder/MiroFish/network)
+[![GitHub License](https://img.shields.io/github/license/mustangcoder/MiroFish?style=flat-square)](https://github.com/mustangcoder/MiroFish/blob/main/LICENSE)
 [![Docker](https://img.shields.io/badge/Docker-Supported-2496ED?style=flat-square&logo=docker&logoColor=white)](https://www.docker.com/)
 
 [English](./README-EN.md) | [中文文档](./README.md)
@@ -21,26 +21,49 @@
 
 [MiroFish](https://github.com/666ghj/MiroFish) is a multi-agent AI prediction engine that constructs high-fidelity parallel digital worlds for swarm intelligence simulation. However, the original MiroFish relies entirely on **Zep Cloud** for memory and knowledge graph services — data passes through a third-party cloud, and it cannot run in offline environments.
 
-**MiroFish-Local** adds a **Graphiti + Neo4j local mode** on top of the original, allowing you to run the entire simulation pipeline without any cloud-based memory service. The original Zep Cloud mode is fully preserved — switch between modes with a single environment variable.
+The community project [tt-a1i/MiroFish-local](https://github.com/tt-a1i/MiroFish-local) introduced the **Graphiti + Neo4j local graph mode**, the `ZEP_BACKEND` dual-backend switch, and the local deployment foundation. MiroFishPlus inherits that work and adds multi-protocol model configuration, ChatGPT Subscription OAuth, SQLite-backed recovery, Graphiti ontology typing, long-running task reliability, and one-command migration and deployment.
 
-### How it differs from upstream MiroFish
+## 🔀 Differences from the Official Project
 
-| Feature | Original MiroFish | MiroFish-Local |
-|---------|:-----------------:|:--------------:|
-| Memory / Knowledge Graph | Zep Cloud (remote) | **Graphiti + Neo4j (local)** or Zep Cloud |
-| Cloud Dependency | Requires Zep Cloud API | **Optional: supports both Cloud and local modes** |
-| Data Privacy | Data passes through third-party cloud | **Local mode keeps all data on-premise** |
-| Entity Extraction | Built into Zep Cloud | **Local LLM extraction (via Graphiti)** |
-| Deployment | Requires Zep Cloud account | **Docker Compose one-click Neo4j startup** |
-| Mode Switching | N/A | **`ZEP_BACKEND=cloud\|graphiti`** |
+This repository is based on both [666ghj/MiroFish](https://github.com/666ghj/MiroFish) and [tt-a1i/MiroFish-local](https://github.com/tt-a1i/MiroFish-local). It is **not an official release of either project and does not represent their maintainers**. The comparison below uses the official `main` branch as of **2026-09-02**.
 
-> In short: if you want your **data to stay local**, or need to run MiroFish in an **air-gapped environment**, MiroFish-Local is the version for you.
+| Lineage | Primary contribution |
+|---------|----------------------|
+| Official MiroFish | Core multi-agent workflow, OASIS dual-platform simulation, knowledge graph, and ReportAgent pipeline |
+| MiroFish-local | Graphiti + Neo4j local graph backend, Zep Cloud/Graphiti switching, and local deployment foundation |
+| MiroFishPlus | Multi-protocol model configuration, OAuth Gateway, unified SQLite and recovery, ontology typing, graph repair, reliability improvements, and complete one-command migration |
+
+| Area | Official project (comparison baseline) | MiroFishPlus |
+|------|----------------------------------------|----------------|
+| Primary focus | General-purpose multi-agent prediction engine using Zep Cloud by default | Preserves the upstream workflow while emphasizing local deployment, model connectivity, and long-running task reliability |
+| Graph service | Zep Cloud | Select Zep Cloud or **Graphiti + Neo4j 5.26** in Configuration Center |
+| Local graph typing | Not applicable | Applies the project ontology to Graphiti, preserves business labels, and distinguishes people, institutions, regions, and events |
+| Text protocols | A single OpenAI SDK-compatible LLM configured through environment variables | Protocol layer supports **OpenAI Responses, OpenAI Chat Completions, and Anthropic Messages** |
+| Embeddings | Configured through the upstream environment | Separate OpenAI Embeddings protocol; its Provider and model can differ from text generation |
+| Model connectivity | API key, Base URL, and model name in `.env` | Configuration Center separates Provider, protocol, authentication, and model; supports API Key, no-auth HTTP, and a ChatGPT Subscription OAuth Gateway |
+| Model roles | Primary model plus an optional boost model | Independent high-capability, fast, and Embedding roles with project-level configuration snapshots |
+| Context management | Relies primarily on model/API defaults | Configurable maximum context, dynamic trimming with paired tool calls/results, and automatic truncation for standard Responses endpoints |
+| Configuration persistence | Primarily `.env` based | Models, graph backend, task history, and preparation checkpoints share `backend/uploads/mirofishplus.db` |
+| Environment preparation recovery | A page or service interruption may restart preparation | Commits every completed persona to SQLite and resumes only missing personas after navigation or service restart |
+| Simulation graph ingestion | Dual-platform simulation with dynamic memory updates | Adds same-round batching, character/Token budgets, rate-limit backoff, completion barriers, and exact recovery of missing Episodes |
+| Workflow history | Upstream baseline workflow | Routes history entries to the latest persisted stage instead of regenerating personas or restarting simulations |
+| Reports and interviews | ReportAgent interacts with the simulation environment and graph tools | Verifies the real OASIS process, marks stale `alive` files as `stale`, and immediately falls back to graph search when interviews are unavailable |
+| Docker startup | Copy `.env`, then run `docker compose up -d` with the official image | `npm run docker:up` builds current local code, starts Neo4j/Gateway, initializes SQLite idempotently, and waits for health checks |
+| Hugging Face assets | Downloaded by the runtime environment | Persistent cache, pre-download, and explicit download timeout |
+
+### Compatibility and Maintenance Boundaries
+
+- **Local does not automatically mean fully offline.** Graphiti and Neo4j can stay on the machine, but a selected text or Embedding Provider may still be a remote HTTP service. Model data remains local only when every Provider points to a local endpoint.
+- **The ChatGPT Subscription OAuth Gateway is not an official public OpenAI API.** It depends on internal ChatGPT/Codex endpoints and may break when upstream protocols, permissions, or rate-limit policies change. Prefer a stable official API-key integration for production use.
+- **Existing graphs are not automatically retyped.** Local Graphiti graphs built before this change with only `Entity` / `GenericEntity` labels must be force-rebuilt to receive ontology labels and improved persona classification.
+- **Zep Cloud and local Graphiti are not guaranteed to produce identical results.** Extraction, deduplication, search, and temporal relationship behavior can differ; rebuild and validate the graph after switching.
+- Treat the official repository as the source of truth for upstream features, issues, and releases. Enhancements and defects introduced by this fork are maintained separately here.
 
 ## ⚡ 3-Minute Quick Demo
 
 ```bash
-git clone https://github.com/tt-a1i/MiroFish-local.git
-cd MiroFish-local
+git clone https://github.com/mustangcoder/MiroFish.git
+cd MiroFish
 cp .env.example .env           # Edit .env and add your LLM_API_KEY
 npm run setup:all              # Install dependencies
 npm run backend &              # Start backend
@@ -123,7 +146,7 @@ Supports OpenAI Responses, OpenAI Chat Completions, and Anthropic Messages. For 
 
 Docker persists Hugging Face assets in the `huggingface_cache` volume and pre-downloads the OASIS Twitter recommender through the separate `hf-prefetch` service. Simulation startup verifies the cache again and fails clearly after a 15-minute download timeout instead of remaining indefinitely in the running state.
 
-MiroFish-owned model configuration, background tasks, and environment-preparation checkpoints share `backend/uploads/mirofish.db`. Upgrades idempotently import the legacy `model-config/models.db` and `tasks/tasks.db` while retaining those source files. OASIS Twitter and Reddit databases remain separate per simulation. Each completed persona is committed as a checkpoint, so an abnormal service restart reuses the original task and continues with only the missing personas.
+MiroFishPlus-owned model configuration, background tasks, and environment-preparation checkpoints share `backend/uploads/mirofishplus.db`. Upgrades first copy the legacy `mirofish.db` without removing it, then idempotently import `model-config/models.db` and `tasks/tasks.db` while retaining every source file. OASIS Twitter and Reddit databases remain separate per simulation. Each completed persona is committed as a checkpoint, so an abnormal service restart reuses the original task and continues with only the missing personas.
 
 ```env
 LLM_API_KEY=your_api_key
@@ -192,7 +215,9 @@ Make sure Docker Desktop is running, then execute from the project root:
 npm run docker:up
 ```
 
-This command creates a missing `.env`, starts Neo4j 5.26 and the Direct OAuth Gateway, initializes or migrates `backend/uploads/mirofish.db`, starts MiroFish, and waits for its health check. Re-running it never resets model configuration, task history, preparation checkpoints, uploads, or Docker volumes.
+This command creates a missing `.env`, migrates legacy Docker volumes, starts Neo4j 5.26 and the Direct OAuth Gateway, initializes or migrates `backend/uploads/mirofishplus.db`, starts MiroFishPlus, and waits for its health check. Re-running it never resets model configuration, task history, preparation checkpoints, uploads, or Docker volumes.
+
+On the first upgrade from the legacy Docker names, the script stops but retains the old containers, copies each `mirofish_*` named volume read-only into its `mirofishplus_*` replacement, verifies file and byte counts, and writes a migration marker. Old volumes are never deleted, so the first migration temporarily requires approximately the same amount of additional disk space. Production volumes such as `mirofishplus_uploads` and `mirofishplus_embedding_cache` can be migrated with `scripts/migrate-docker-volume.sh OLD_VOLUME NEW_VOLUME` under the same rules.
 
 Service URLs:
 
@@ -301,23 +326,18 @@ We welcome Pull Requests and Issues! See [CONTRIBUTING.md](./CONTRIBUTING.md) fo
 
 ## 📄 Credits & Attribution
 
-**This project is a modified fork of [MiroFish](https://github.com/666ghj/MiroFish).**
+**This project is based on both the official [666ghj/MiroFish](https://github.com/666ghj/MiroFish) and the community [tt-a1i/MiroFish-local](https://github.com/tt-a1i/MiroFish-local) project.**
 
-Thanks to the original project [666ghj/MiroFish](https://github.com/666ghj/MiroFish) and Shanda Group for their open-source contributions. MiroFish's core simulation engine is powered by **[OASIS](https://github.com/camel-ai/oasis)**, a high-performance social media simulation framework developed by the [CAMEL-AI](https://github.com/camel-ai) team, supporting million-scale agent interaction simulations.
+Thanks to the official project, Shanda Group, and the MiroFish-local maintainers for the open-source Graphiti + Neo4j localization work. MiroFish's core simulation engine is powered by **[OASIS](https://github.com/camel-ai/oasis)**, developed by the [CAMEL-AI](https://github.com/camel-ai) team.
 
-**Key changes in this fork:**
-- Added Graphiti + Neo4j local memory backend, replacing Zep Cloud dependency
-- Implemented `ZEP_BACKEND` environment variable for `cloud` / `graphiti` dual-mode switching
-- Added Docker Compose configuration for one-click Neo4j 5.26 + APOC plugin startup
-- Auto-mapping of LLM configuration to Graphiti, reducing redundant configuration
-- Added search re-ranking fallback (non-standard APIs auto-switch to RRF re-ranking)
+On top of that foundation, MiroFishPlus adds Configuration Center, multiple model protocols, OAuth Gateway, unified SQLite, preparation recovery, Graphiti typing and ingestion repair, simulation lifecycle fixes, and one-command branded migration.
 
 ## 📈 Project Statistics
 
-<a href="https://www.star-history.com/#tt-a1i/MiroFish-local&type=date&legend=top-left">
+<a href="https://www.star-history.com/#mustangcoder/MiroFish&type=date&legend=top-left">
  <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=tt-a1i/MiroFish-local&type=date&theme=dark&legend=top-left" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=tt-a1i/MiroFish-local&type=date&legend=top-left" />
-   <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=tt-a1i/MiroFish-local&type=date&legend=top-left" />
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=mustangcoder/MiroFish&type=date&theme=dark&legend=top-left" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=mustangcoder/MiroFish&type=date&legend=top-left" />
+   <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=mustangcoder/MiroFish&type=date&legend=top-left" />
  </picture>
 </a>

@@ -1,16 +1,16 @@
 <div align="center">
 
-<img src="./static/image/MiroFish_logo_compressed.jpeg" alt="MiroFish-Local Logo" width="75%"/>
+<img src="./static/image/MiroFish_logo_compressed.jpeg" alt="MiroFishPlus Logo" width="75%"/>
 
-# MiroFish-Local
+# MiroFishPlus
 
-**基于 [MiroFish](https://github.com/666ghj/MiroFish) 的本地化增强版 — 支持 Graphiti + Neo4j 完全本地部署，数据不出域。**
+**基于官方 [MiroFish](https://github.com/666ghj/MiroFish) 与社区项目 [MiroFish-local](https://github.com/tt-a1i/MiroFish-local) 持续演进的增强版。**
 
-*多智能体群体智能仿真引擎，模拟舆情、市场情绪与社会动态。可完全运行在本地环境。*
+*多智能体群体智能仿真引擎，模拟舆情、市场情绪与社会动态；图谱、配置和任务数据可保留在本地。*
 
-[![GitHub Stars](https://img.shields.io/github/stars/tt-a1i/MiroFish-local?style=flat-square)](https://github.com/tt-a1i/MiroFish-local/stargazers)
-[![GitHub Forks](https://img.shields.io/github/forks/tt-a1i/MiroFish-local?style=flat-square)](https://github.com/tt-a1i/MiroFish-local/network)
-[![GitHub License](https://img.shields.io/github/license/tt-a1i/MiroFish-local?style=flat-square)](https://github.com/tt-a1i/MiroFish-local/blob/main/LICENSE)
+[![GitHub Stars](https://img.shields.io/github/stars/mustangcoder/MiroFish?style=flat-square)](https://github.com/mustangcoder/MiroFish/stargazers)
+[![GitHub Forks](https://img.shields.io/github/forks/mustangcoder/MiroFish?style=flat-square)](https://github.com/mustangcoder/MiroFish/network)
+[![GitHub License](https://img.shields.io/github/license/mustangcoder/MiroFish?style=flat-square)](https://github.com/mustangcoder/MiroFish/blob/main/LICENSE)
 [![Docker](https://img.shields.io/badge/Docker-支持-2496ED?style=flat-square&logo=docker&logoColor=white)](https://www.docker.com/)
 
 [English](./README-EN.md) | [中文文档](./README.md)
@@ -21,26 +21,49 @@
 
 [MiroFish](https://github.com/666ghj/MiroFish) 是一款基于多智能体技术的 AI 预测引擎，通过构建高保真平行数字世界进行群体智能仿真。但原版 MiroFish 的记忆与知识图谱完全依赖 **Zep Cloud** 云服务——数据经过云端，且无法在离线环境运行。
 
-**MiroFish-Local** 在原版基础上新增了 **Graphiti + Neo4j 本地模式**，让你可以在完全不依赖云端记忆服务的情况下运行整个仿真流程。同时保留了原版的 Zep Cloud 模式，通过一个环境变量即可自由切换。
+社区项目 [tt-a1i/MiroFish-local](https://github.com/tt-a1i/MiroFish-local) 在官方版本基础上实现了 **Graphiti + Neo4j 本地图谱模式**、`ZEP_BACKEND` 双模式切换和本地部署基础。本项目继承这部分工作，并继续扩展模型协议与配置中心、ChatGPT Subscription OAuth、SQLite 持久化恢复、Graphiti 本体类型、长任务可靠性和一键迁移部署等能力。
 
-### 与原版 MiroFish 的差异
+## 🔀 与官方项目的区别
 
-| 特性 | 原版 MiroFish | MiroFish-Local |
-|------|:------------:|:--------------:|
-| 记忆 / 知识图谱 | Zep Cloud（云端） | **Graphiti + Neo4j（本地）** 或 Zep Cloud |
-| 云端依赖 | 必须使用 Zep Cloud API | **可选：支持 Cloud 和本地双模式** |
-| 数据隐私 | 数据经过第三方云端 | **本地模式下数据完全不出域** |
-| 实体抽取 | Zep Cloud 内置 | **本地 LLM 同步抽取（via Graphiti）** |
-| 部署依赖 | 需要 Zep Cloud 账号 | **Docker Compose 一键启动 Neo4j** |
-| 模式切换 | 无 | **`ZEP_BACKEND=cloud\|graphiti` 一键切换** |
+本仓库同时基于 [666ghj/MiroFish](https://github.com/666ghj/MiroFish) 和 [tt-a1i/MiroFish-local](https://github.com/tt-a1i/MiroFish-local)，**不是上述任一项目的官方发行版，也不代表其维护团队**。下表以 **2026-09-02 官方 `main` 分支**为比较基准；上游持续演进后，部分差异可能缩小或消失。
 
-> 一句话总结：如果你希望**数据完全留在本地**，或者在**无外网环境**下运行 MiroFish，MiroFish-Local 就是你需要的版本。
+| 继承层级 | 主要贡献 |
+|----------|----------|
+| 官方 MiroFish | 多智能体推演主流程、OASIS 双平台模拟、知识图谱与 ReportAgent 工作流 |
+| MiroFish-local | Graphiti + Neo4j 本地图谱、Zep Cloud/Graphiti 双模式与本地化部署基础 |
+| MiroFishPlus | 多协议模型配置、OAuth Gateway、统一 SQLite 与断点恢复、本体类型、图谱补偿、可靠性优化和完整一键迁移 |
+
+| 维度 | 官方项目（比较基准） | 本项目 MiroFishPlus |
+|------|----------------------|-----------------------|
+| 核心定位 | 通用多智能体预测引擎，默认使用 Zep Cloud | 保留官方工作流，重点增强本地部署、模型接入和长任务可靠性 |
+| 图谱服务 | Zep Cloud | 可在配置中心选择 Zep Cloud，或使用 **Graphiti + Neo4j 5.26** |
+| 本地图谱类型 | 不适用 | 将项目本体传入 Graphiti，保留业务实体标签，并区分人物、机构、地区与事件 |
+| 文本模型协议 | 通过 OpenAI SDK 兼容接口配置单一 LLM | 协议层支持 **OpenAI Responses、OpenAI Chat Completions、Anthropic Messages** |
+| Embedding | 跟随官方环境变量配置 | 独立支持 OpenAI Embeddings 协议，可与文本模型选择不同 Provider 和模型 |
+| 模型接入 | `.env` 中配置 API Key、Base URL 和模型名 | 配置中心分离 Provider、协议、认证和具体模型；支持 API Key、无需认证及 ChatGPT Subscription OAuth Gateway |
+| 模型职责 | 主模型与可选加速模型 | 高能力、快速、Embedding 三个职责独立选择，并保存项目级配置快照 |
+| 上下文管理 | 依赖模型/API 默认行为 | 可配置模型最大上下文，按窗口动态裁剪，保持工具调用与结果成对，并为标准 Responses 启用自动截断 |
+| 配置持久化 | 主要依赖 `.env` | 模型、图谱后端、任务和准备检查点统一持久化到 `backend/uploads/mirofishplus.db` |
+| 环境准备恢复 | 页面或服务中断后可能重新开始 | 每完成人设即写入 SQLite 检查点；刷新页面或服务重启后只生成缺失部分 |
+| 模拟与图谱写入 | 双平台模拟并动态更新记忆 | 增加同轮次聚合、字符/Token 预算、限流退避、完成屏障和缺失 Episode 精确补写 |
+| 历史流程恢复 | 官方基础流程 | 根据持久化状态返回最近节点，避免从历史记录进入后重复生成人设或重启模拟 |
+| 报告与采访 | ReportAgent 调用模拟环境和图谱工具 | 检查真实 OASIS 进程；陈旧 `alive` 状态会修正为 `stale`，采访不可用时立即回退到图谱检索 |
+| Docker 启动 | 复制 `.env` 后执行 `docker compose up -d`，默认拉取官方镜像 | `npm run docker:up` 构建最新本地代码，启动 Neo4j/Gateway，幂等初始化 SQLite 并等待健康检查 |
+| Hugging Face 模型 | 按运行环境下载 | 持久化缓存、预下载并设置明确的下载超时 |
+
+### 兼容性与维护边界
+
+- **本地不等于完全离线。** Graphiti 和 Neo4j 可留在本机，但所选文本模型或 Embedding Provider 仍可能是远程 HTTP 服务；只有全部 Provider 都指向本地服务时，模型数据才不离开本机。
+- **ChatGPT Subscription OAuth Gateway 不是 OpenAI 官方公开 API。** 它依赖 ChatGPT/Codex 内部接口，可能因上游协议、权限或限流策略变化而失效；生产环境优先使用稳定的官方 API Key 接入。
+- **旧图谱不会自动重写类型。** 升级前已经构建、且只含 `Entity` / `GenericEntity` 的本地 Graphiti 图谱，需要强制重建后才能获得新的本体标签和更准确的人设分类。
+- **Zep Cloud 与本地 Graphiti 不保证结果完全一致。** 两者在抽取、去重、搜索和时序关系处理上可能产生不同结果，切换后建议重新构建图谱并验收。
+- 官方功能、问题与版本发布请以官方仓库为准；本项目新增功能和问题在本仓库独立维护。
 
 ## ⚡ 3 分钟体验
 
 ```bash
-git clone https://github.com/tt-a1i/MiroFish-local.git
-cd MiroFish-local
+git clone https://github.com/mustangcoder/MiroFish.git
+cd MiroFish
 cp .env.example .env           # 编辑 .env 填入 LLM_API_KEY
 npm run setup:all              # 安装依赖
 npm run backend &              # 启动后端
@@ -123,7 +146,7 @@ cp .env.example .env
 
 Docker 部署会将 Hugging Face 模型缓存持久化到 `huggingface_cache` 卷，并在独立的 `hf-prefetch` 服务中预下载 OASIS Twitter 推荐模型。推演启动前会再次检查缓存；下载超过 15 分钟会明确失败，而不会让任务无限停留在运行中。
 
-MiroFish 自有的模型配置、后台任务和环境准备检查点统一保存在 `backend/uploads/mirofish.db`。升级时会幂等导入旧的 `model-config/models.db` 与 `tasks/tasks.db`，并保留旧文件。OASIS 生成的 Twitter/Reddit 平台数据库仍按模拟单独保存。环境准备每完成一个人设都会提交检查点；服务异常重启后会复用原任务并从缺失的人设继续。
+MiroFishPlus 自有的模型配置、后台任务和环境准备检查点统一保存在 `backend/uploads/mirofishplus.db`。升级时会先无损复制旧 `mirofish.db`，再幂等导入旧的 `model-config/models.db` 与 `tasks/tasks.db`，并保留所有旧文件。OASIS 生成的 Twitter/Reddit 平台数据库仍按模拟单独保存。环境准备每完成一个人设都会提交检查点；服务异常重启后会复用原任务并从缺失的人设继续。
 
 ```env
 LLM_API_KEY=your_api_key
@@ -192,7 +215,9 @@ LLM_BOOST_MODEL_NAME=gpt-4o-mini
 npm run docker:up
 ```
 
-该命令会自动创建缺失的 `.env`、启动 Neo4j 5.26、Direct OAuth Gateway，初始化或迁移 `backend/uploads/mirofish.db`，最后启动 MiroFish 并等待健康检查。重复执行不会重置模型配置、任务记录、环境准备检查点、上传文件或 Docker 卷。
+该命令会自动创建缺失的 `.env`、迁移旧 Docker 卷、启动 Neo4j 5.26 与 Direct OAuth Gateway，初始化或迁移 `backend/uploads/mirofishplus.db`，最后启动 MiroFishPlus 并等待健康检查。重复执行不会重置模型配置、任务记录、环境准备检查点、上传文件或 Docker 卷。
+
+从旧版 Docker 名称首次升级时，脚本会停止但保留旧容器，将 `mirofish_*` 命名卷只读复制到 `mirofishplus_*`，校验文件数和字节数后写入迁移标记。旧卷不会删除；首次迁移会额外占用约等于旧卷大小的磁盘空间。生产 Compose 的 `mirofishplus_uploads` 与 `mirofishplus_embedding_cache` 可使用 `scripts/migrate-docker-volume.sh OLD_VOLUME NEW_VOLUME` 按相同规则迁移。
 
 启动完成后可访问：
 
@@ -301,23 +326,18 @@ Cloud 模式使用 Zep Cloud 云服务存储记忆和知识图谱，配置简单
 
 ## 📄 致谢与归属
 
-**本项目是 [MiroFish](https://github.com/666ghj/MiroFish) 的修改版 fork。**
+**本项目同时基于官方 [666ghj/MiroFish](https://github.com/666ghj/MiroFish) 与社区项目 [tt-a1i/MiroFish-local](https://github.com/tt-a1i/MiroFish-local)。**
 
-感谢原项目 [666ghj/MiroFish](https://github.com/666ghj/MiroFish) 及盛大集团的开源贡献。MiroFish 的核心仿真引擎由 **[OASIS](https://github.com/camel-ai/oasis)** 驱动，OASIS 是由 [CAMEL-AI](https://github.com/camel-ai) 团队开发的高性能社交媒体模拟框架，支持百万级智能体交互仿真。
+感谢官方项目、盛大集团，以及 MiroFish-local 维护者对 Graphiti + Neo4j 本地化方案的开源贡献。MiroFish 的核心仿真引擎由 **[OASIS](https://github.com/camel-ai/oasis)** 驱动，OASIS 是由 [CAMEL-AI](https://github.com/camel-ai) 团队开发的高性能社交媒体模拟框架。
 
-**本 fork 的主要修改：**
-- 新增 Graphiti + Neo4j 本地记忆后端，替代 Zep Cloud 云端依赖
-- 实现 `ZEP_BACKEND` 环境变量，支持 `cloud` / `graphiti` 双模式切换
-- 添加 Docker Compose 配置，一键启动 Neo4j 5.26 + APOC 插件
-- 自动映射 LLM 配置到 Graphiti，减少重复配置
-- 新增搜索重排序降级机制（非标准 API 自动切换 RRF 重排序）
+MiroFishPlus 在上述基础上继续增加配置中心、多模型协议、OAuth Gateway、统一 SQLite、准备进度恢复、Graphiti 类型与写入补偿、推演生命周期修复及一键品牌迁移。
 
 ## 📈 项目统计
 
-<a href="https://www.star-history.com/#tt-a1i/MiroFish-local&type=date&legend=top-left">
+<a href="https://www.star-history.com/#mustangcoder/MiroFish&type=date&legend=top-left">
  <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=tt-a1i/MiroFish-local&type=date&theme=dark&legend=top-left" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=tt-a1i/MiroFish-local&type=date&legend=top-left" />
-   <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=tt-a1i/MiroFish-local&type=date&legend=top-left" />
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=mustangcoder/MiroFish&type=date&theme=dark&legend=top-left" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=mustangcoder/MiroFish&type=date&legend=top-left" />
+   <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=mustangcoder/MiroFish&type=date&legend=top-left" />
  </picture>
 </a>

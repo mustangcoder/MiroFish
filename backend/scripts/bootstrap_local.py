@@ -1,4 +1,4 @@
-"""初始化本地运行所需的 MiroFish 持久化数据。"""
+"""初始化本地运行所需的 MiroFishPlus 持久化数据。"""
 
 from __future__ import annotations
 
@@ -8,7 +8,11 @@ import sqlite3
 from pathlib import Path
 from typing import Mapping
 
-from app.models.database import initialize_unified_database, unified_database_path
+from app.models.database import (
+    initialize_unified_database,
+    migrate_legacy_unified_database,
+    unified_database_path,
+)
 from app.models.task_store import TaskStore
 from app.services.credential_cipher import CredentialCipher
 from app.services.memory_backend_config_service import MemoryBackendConfigService
@@ -40,6 +44,7 @@ def bootstrap(
     """幂等创建、迁移并校验本地数据库。"""
     path = Path(database_path or unified_database_path())
     path.parent.mkdir(parents=True, exist_ok=True)
+    migrate_legacy_unified_database(path)
     key_path = path.parent / "model-config" / "master.key"
     cipher = CredentialCipher(key_path)
 

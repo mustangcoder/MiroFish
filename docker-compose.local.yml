@@ -4,7 +4,7 @@
 services:
   neo4j:
     image: neo4j:5.26.0
-    container_name: mirofish-neo4j
+    container_name: mirofishplus-neo4j
     ports:
       - "7474:7474"  # HTTP (Browser)
       - "7687:7687"  # Bolt (Driver)
@@ -46,7 +46,9 @@ services:
 
 volumes:
   neo4j_data:
+    name: mirofishplus_neo4j_data
   neo4j_logs:
+    name: mirofishplus_neo4j_logs
 
 # 使用说明：
 # 1. 启动 Neo4j：docker-compose -f docker-compose.local.yml up -d

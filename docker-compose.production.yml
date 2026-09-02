@@ -1,9 +1,11 @@
+name: mirofishplus
+
 services:
   direct-oauth-gateway:
     build:
       context: .
       dockerfile: direct_gateway/Dockerfile
-    container_name: mirofish-direct-oauth-gateway
+    container_name: mirofishplus-direct-oauth-gateway
     env_file:
       - .env
     expose:
@@ -25,7 +27,7 @@ services:
       dockerfile: frontend/Dockerfile
       args:
         VITE_API_BASE_URL: /
-    container_name: mirofish-web
+    container_name: mirofishplus-web
     ports:
       - "3003:80"
     depends_on:
@@ -38,7 +40,7 @@ services:
     build:
       context: .
       dockerfile: backend/Dockerfile
-    container_name: mirofish-backend
+    container_name: mirofishplus-backend
     env_file:
       - .env
     expose:
@@ -65,7 +67,7 @@ services:
 
   neo4j:
     image: neo4j:5.26.0
-    container_name: mirofish-neo4j
+    container_name: mirofishplus-neo4j
     environment:
       NEO4J_AUTH: neo4j/${NEO4J_PASSWORD:?NEO4J_PASSWORD must be set}
       NEO4J_PLUGINS: '["apoc"]'
@@ -94,7 +96,7 @@ services:
     image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.8
     platform: linux/amd64
     profiles: ["bundled-embedding"]
-    container_name: mirofish-embedding
+    container_name: mirofishplus-embedding
     command:
       - --model-id
       - sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2
@@ -115,7 +117,12 @@ services:
 
 volumes:
   direct_oauth_credentials:
+    name: mirofishplus_direct_oauth_credentials
   neo4j_data:
+    name: mirofishplus_neo4j_data
   neo4j_logs:
+    name: mirofishplus_neo4j_logs
   embedding_cache:
+    name: mirofishplus_embedding_cache
   mirofish_uploads:
+    name: mirofishplus_uploads

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-MiroFish-Local Quick Demo
+MiroFishPlus Quick Demo
 =========================
 一键体验 MiroFish 仿真流程：上传种子新闻 → 构建知识图谱 → 查看实体关系
 
@@ -153,13 +153,13 @@ def show_graph(graph_id):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="MiroFish-Local Quick Demo")
+    parser = argparse.ArgumentParser(description="MiroFishPlus Quick Demo")
     parser.add_argument("--seed", default=DEFAULT_SEED, help="种子文件路径")
     parser.add_argument("--skip-build", action="store_true", help="跳过图谱构建，仅生成本体")
     args = parser.parse_args()
 
     print("=" * 60)
-    print("🐟 MiroFish-Local Quick Demo")
+    print("🐟 MiroFishPlus Quick Demo")
     print("=" * 60)
 
     # 1. 检查服务
