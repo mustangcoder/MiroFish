@@ -74,6 +74,15 @@ def test_codex_gateway_is_not_a_runtime_provider():
     assert "Codex Gateway" not in runtime_text
 
 
+def test_obsolete_codex_gateway_source_and_deployment_docs_are_removed():
+    root = Path(__file__).resolve().parents[2]
+
+    assert not (root / "codex_gateway").exists()
+    assert not (root / "docs/deployment/codex-subscription.md").exists()
+    assert not (root / "docs/superpowers/specs/2026-08-27-codex-subscription-provider-design.md").exists()
+    assert not (root / "docs/superpowers/plans/2026-08-27-codex-subscription-provider.md").exists()
+
+
 def test_graph_build_batch_size_restores_three_way_throughput():
     root = Path(__file__).resolve().parents[2]
     graph_api = (root / "backend" / "app" / "api" / "graph.py").read_text()

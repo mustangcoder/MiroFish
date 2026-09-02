@@ -4,7 +4,7 @@
 
 新增实验性Direct OAuth Provider，参考OpenCode的CodexAuthPlugin实现ChatGPT Device Code/PKCE登录、Token刷新和Codex Responses请求改写。Graphiti批量结构化抽取优先使用Direct Provider，绕过官方Codex app-server的Agent thread/turn生命周期。
 
-官方Codex app-server Gateway继续服务于报告、问答和一般分析。DeepSeek保留为最后回退。
+Direct OAuth Gateway 统一服务于报告、问答、Graphiti 和一般分析。
 
 ## 实验性边界
 
@@ -26,14 +26,14 @@ Graphiti
   -> ChatGPT Codex Responses endpoint
 
 其他MiroFish文本任务
-  -> codex-gateway
-  -> 官方openai-codex app-server
+  -> direct-oauth-gateway
+  -> ChatGPT Codex Responses endpoint
 
 Embedding
   -> TEI
 ```
 
-两个Gateway都只在Docker内网暴露，不映射宿主机端口。
+Gateway 只在 Docker 内网暴露，不映射宿主机端口。
 
 ## OAuth
 
@@ -111,7 +111,7 @@ Codex Responses endpoint由配置提供，默认值以实施时验证的OpenCode
 
 其他文本任务继续使用：
 
-- `LLM_BASE_URL=http://codex-gateway:8080/v1`
+- `LLM_BASE_URL=http://direct-oauth-gateway:8090/v1`
 
 ## 回退与熔断
 
@@ -120,7 +120,7 @@ Graphiti路由顺序：
 1. Direct OAuth Provider。
 2. 可配置的DeepSeek fallback。
 
-不自动回退到官方Codex app-server，避免批量任务再次进入Agent turn超时。
+不使用官方 Codex app-server，避免批量任务进入 Agent thread/turn 生命周期。
 
 触发熔断：
 

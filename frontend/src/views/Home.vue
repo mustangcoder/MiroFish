@@ -7,7 +7,7 @@
         <router-link to="/settings" class="history-link">{{ $t('nav.modelSettings') }} <span class="arrow">→</span></router-link>
         <router-link to="/history" class="history-link">{{ $t('nav.history') }} <span class="arrow">→</span></router-link>
         <LanguageSwitcher />
-        <a href="https://github.com/mustangcoder/MiroFish" target="_blank" class="github-link">
+        <a href="https://github.com/mustangcoder/MiroFishPlus" target="_blank" class="github-link">
           {{ $t('nav.visitGithub') }} <span class="arrow">↗</span>
         </a>
       </div>

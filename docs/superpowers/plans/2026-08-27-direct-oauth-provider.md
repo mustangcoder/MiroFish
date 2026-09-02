@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 新增参考OpenCode CodexAuthPlugin的实验性ChatGPT Direct OAuth Provider，让Graphiti通过Codex Responses后端完成高吞吐结构化抽取，而其他MiroFish任务继续使用官方Codex app-server Gateway。
+**Goal:** 新增参考OpenCode CodexAuthPlugin的实验性ChatGPT Direct OAuth Provider，让Graphiti通过Codex Responses后端完成高吞吐结构化抽取，并统一承载其他 MiroFish 文本任务。
 
 **Architecture:** 独立`direct_gateway`容器管理Device Code OAuth、0600凭据文件、Token刷新和Codex Responses SSE。它对Graphiti暴露OpenAI-compatible非流式Chat Completions接口；backend通过独立`GRAPHITI_LLM_*`配置指向该服务。Direct Gateway不创建Codex Agent thread/turn，失败时使用DeepSeek fallback和熔断。
 
@@ -201,7 +201,7 @@ Run: `cd direct_gateway && uv run --extra dev pytest tests/test_messages.py test
 
 - [ ] **Step 4: 实现API和Provider Router**
 
-Direct优先，DeepSeek fallback。不得回退到官方Codex app-server。结构化日志只记录request ID、provider、耗时、状态和安全错误代码。
+Direct OAuth 是唯一的 ChatGPT 订阅接入，DeepSeek 可作为显式 fallback。结构化日志只记录 request ID、provider、耗时、状态和安全错误代码。
 
 - [ ] **Step 5: 实现Dockerfile**
 
@@ -283,7 +283,7 @@ OAuth持久化、text、复杂Schema、单块建图和容器资源全部通过�
 
 - [ ] **Step 2: 设置Graphiti独立Provider**
 
-backend环境指向`direct-oauth-gateway:8090/v1`，普通LLM仍指向`codex-gateway:8080/v1`。重建backend并验证安全配置。
+backend 与普通 LLM 均指向 `direct-oauth-gateway:8090/v1`。重建backend并验证安全配置。
 
 - [ ] **Step 3: 使用派生语料启动建图**
 

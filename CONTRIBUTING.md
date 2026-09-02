@@ -4,8 +4,8 @@
 
 ## 如何提交 Issue
 
-- **Bug 报告**：使用 [Bug Report](https://github.com/mustangcoder/MiroFish/issues/new?template=bug_report.yml) 模板
-- **功能建议**：使用 [Feature Request](https://github.com/mustangcoder/MiroFish/issues/new?template=feature_request.yml) 模板
+- **Bug 报告**：使用 [Bug Report](https://github.com/mustangcoder/MiroFishPlus/issues/new?template=bug_report.yml) 模板
+- **功能建议**：使用 [Feature Request](https://github.com/mustangcoder/MiroFishPlus/issues/new?template=feature_request.yml) 模板
 
 ## 如何提交 PR
 
