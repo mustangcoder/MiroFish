@@ -184,7 +184,29 @@ LLM_BOOST_BASE_URL=https://another-api-provider.com/v1
 LLM_BOOST_MODEL_NAME=gpt-4o-mini
 ```
 
-### 2. Start Dependency Services (Optional, Local Mode Only)
+### 2. One-command Docker Startup (Recommended)
+
+Make sure Docker Desktop is running, then execute from the project root:
+
+```bash
+npm run docker:up
+```
+
+This command creates a missing `.env`, starts Neo4j 5.26 and the Direct OAuth Gateway, initializes or migrates `backend/uploads/mirofish.db`, starts MiroFish, and waits for its health check. Re-running it never resets model configuration, task history, preparation checkpoints, uploads, or Docker volumes.
+
+Service URLs:
+
+- Frontend: `http://localhost:3000`
+- Backend health check: `http://localhost:5001/health`
+- Neo4j Browser: `http://localhost:7474`
+
+On failure, the script preserves the containers and prints a diagnostic command. Logs are also available with:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.local.yml logs --tail=200
+```
+
+### 3. Start Dependency Services Manually (Optional)
 
 If you chose `ZEP_BACKEND=graphiti`, start the Neo4j database first:
 
@@ -198,7 +220,7 @@ docker-compose -f docker-compose.local.yml ps
 # Neo4j Browser available at http://localhost:7474 (user: neo4j, password: password)
 ```
 
-### 3. Install Dependencies
+### 4. Install Dependencies
 
 ```bash
 # One-click installation of all dependencies (root + frontend + backend)
@@ -215,7 +237,7 @@ npm run setup
 npm run setup:backend
 ```
 
-### 4. Start Services
+### 5. Start Non-Docker Development Services
 
 ```bash
 # Start both frontend and backend (run from project root)

@@ -1,3 +1,5 @@
+name: mirofish
+
 services:
   direct-oauth-gateway:
     build:
@@ -39,10 +41,24 @@ services:
       - huggingface_cache:/var/lib/mirofish/huggingface
     restart: "on-failure:3"
 
+  bootstrap:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: mirofish-local:latest
+    container_name: mirofish-bootstrap
+    env_file:
+      - .env
+    command: ["uv", "run", "--project", "backend", "python", "backend/scripts/bootstrap_local.py"]
+    restart: "no"
+    volumes:
+      - ./backend/uploads:/app/backend/uploads
+
   mirofish:
     build:
       context: .
       dockerfile: Dockerfile
+    image: mirofish-local:latest
     container_name: mirofish
     env_file:
       - .env
@@ -64,9 +80,17 @@ services:
     depends_on:
       direct-oauth-gateway:
         condition: service_healthy
+      bootstrap:
+        condition: service_completed_successfully
     volumes:
       - ./backend/uploads:/app/backend/uploads
       - huggingface_cache:/var/lib/mirofish/huggingface
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5001/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 18
+      start_period: 20s
 
 volumes:
   direct_oauth_credentials:
