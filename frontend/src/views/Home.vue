@@ -1,19 +1,21 @@
 <template>
   <div class="home-container">
-    <!-- 顶部导航栏 -->
-    <nav class="navbar">
+    <div ref="homeContent">
+      <!-- 顶部导航栏 -->
+      <nav class="navbar">
       <div class="nav-brand">MIROFISHPLUS</div>
       <div class="nav-links">
         <router-link to="/settings" class="history-link">{{ $t('nav.modelSettings') }} <span class="arrow">→</span></router-link>
+        <router-link to="/files" class="history-link">{{ $t('nav.fileLibrary') }} <span class="arrow">→</span></router-link>
         <router-link to="/history" class="history-link">{{ $t('nav.history') }} <span class="arrow">→</span></router-link>
         <LanguageSwitcher />
         <a href="https://github.com/mustangcoder/MiroFishPlus" target="_blank" class="github-link">
           {{ $t('nav.visitGithub') }} <span class="arrow">↗</span>
         </a>
       </div>
-    </nav>
+      </nav>
 
-    <div class="main-content">
+      <div class="main-content">
       <!-- 上半部分：Hero 区域 -->
       <section class="hero-section">
         <div class="hero-left">
@@ -137,36 +139,62 @@
 
               <div
                 class="upload-zone"
-                :class="{ 'drag-over': isDragOver, 'has-files': files.length > 0 }"
+                :class="{ 'drag-over': isDragOver, 'has-files': hasSelectedFiles }"
                 @dragover.prevent="handleDragOver"
                 @dragleave.prevent="handleDragLeave"
                 @drop.prevent="handleDrop"
-                @click="triggerFileInput"
               >
                 <input
                   ref="fileInput"
                   type="file"
                   multiple
-                  accept=".pdf,.md,.txt"
+                  accept=".pdf,.md,.markdown,.txt"
                   @change="handleFileSelect"
                   style="display: none"
                   :disabled="loading"
                 />
 
-                <div v-if="files.length === 0" class="upload-placeholder">
+                <div v-if="!hasSelectedFiles" class="upload-placeholder">
                   <div class="upload-icon">↑</div>
                   <div class="upload-title">{{ $t('home.dragToUpload') }}</div>
-                  <div class="upload-hint">{{ $t('home.orBrowse') }}</div>
+                  <div class="upload-hint">{{ $t('home.chooseFileSource') }}</div>
                 </div>
 
                 <div v-else class="file-list">
-                  <div v-for="(file, index) in files" :key="index" class="file-item">
-                    <span class="file-icon">📄</span>
+                  <div v-for="(file, index) in files" :key="`local-${index}-${file.name}`" class="file-item">
+                    <span class="file-source">{{ $t('home.localFile') }}</span>
                     <span class="file-name">{{ file.name }}</span>
-                    <button @click.stop="removeFile(index)" class="remove-btn">×</button>
+                    <button
+                      type="button"
+                      class="remove-btn"
+                      :aria-label="$t('home.removeSelectedFile', { name: file.name })"
+                      @click="removeLocalFile(index)"
+                    >×</button>
+                  </div>
+                  <div v-for="file in selectedLibraryFiles" :key="file.file_id" class="file-item">
+                    <span class="file-source library">{{ $t('home.libraryFile') }}</span>
+                    <span class="file-name">{{ file.display_name }}</span>
+                    <button
+                      type="button"
+                      class="remove-btn"
+                      :aria-label="$t('home.removeSelectedFile', { name: file.display_name })"
+                      @click="removeLibraryFile(file.file_id)"
+                    >×</button>
                   </div>
                 </div>
               </div>
+
+              <div class="upload-actions">
+                <button type="button" class="source-button" :disabled="loading" @click="triggerFileInput">
+                  {{ $t('home.uploadLocal') }}
+                </button>
+                <button type="button" class="source-button" :disabled="loading" @click="pickerOpen = true">
+                  {{ $t('home.chooseFromLibrary') }}
+                </button>
+              </div>
+              <p v-if="fileValidationError" class="file-validation-error" role="alert">
+                {{ fileValidationError }}
+              </p>
             </div>
 
             <!-- 分割线 -->
@@ -206,16 +234,30 @@
           </div>
         </div>
       </section>
+      </div>
     </div>
+
+    <FileLibraryPicker
+      v-if="pickerOpen"
+      v-model="selectedLibraryFileIds"
+      :selected-files="selectedLibraryFiles"
+      :background-element="homeContent"
+      @confirm="handleLibrarySelection"
+      @cancel="pickerOpen = false"
+    />
   </div>
 </template>
 
 <script setup>
 import { ref, computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
+import FileLibraryPicker from '../components/FileLibraryPicker.vue'
 import LanguageSwitcher from '../components/LanguageSwitcher.vue'
+import { setPendingUpload } from '../store/pendingUpload'
 
 const router = useRouter()
+const { t } = useI18n()
 
 // 表单数据
 const formData = ref({
@@ -224,18 +266,26 @@ const formData = ref({
 
 // 文件列表
 const files = ref([])
+const selectedLibraryFiles = ref([])
+const selectedLibraryFileIds = ref([])
+const pickerOpen = ref(false)
+const homeContent = ref(null)
+const fileValidationError = ref('')
 
 // 状态
 const loading = ref(false)
-const error = ref('')
 const isDragOver = ref(false)
 
 // 文件输入引用
 const fileInput = ref(null)
 
+const hasSelectedFiles = computed(() => {
+  return files.value.length > 0 || selectedLibraryFileIds.value.length > 0
+})
+
 // 计算属性:是否可以提交
 const canSubmit = computed(() => {
-  return formData.value.simulationRequirement.trim() !== '' && files.value.length > 0
+  return formData.value.simulationRequirement.trim() !== '' && (files.value.length > 0 || selectedLibraryFileIds.value.length > 0)
 })
 
 // 触发文件选择
@@ -249,6 +299,7 @@ const triggerFileInput = () => {
 const handleFileSelect = (event) => {
   const selectedFiles = Array.from(event.target.files)
   addFiles(selectedFiles)
+  event.target.value = ''
 }
 
 // 处理拖拽相关
@@ -272,16 +323,39 @@ const handleDrop = (e) => {
 
 // 添加文件
 const addFiles = (newFiles) => {
-  const validFiles = newFiles.filter(file => {
-    const ext = file.name.split('.').pop().toLowerCase()
-    return ['pdf', 'md', 'txt'].includes(ext)
+  const allowedExtensions = new Set(['pdf', 'md', 'markdown', 'txt'])
+  const invalidFiles = newFiles.filter(file => {
+    const name = typeof file.name === 'string' ? file.name : ''
+    const extension = name.includes('.') ? name.split('.').pop().toLowerCase() : ''
+    return !name || name.includes('/') || name.includes('\\') || !allowedExtensions.has(extension)
   })
-  files.value.push(...validFiles)
+  if (invalidFiles.length > 0) {
+    fileValidationError.value = t('home.invalidFileSelection', {
+      names: invalidFiles.map(file => file.name || t('home.unnamedFile')).join(', ')
+    })
+    return
+  }
+  fileValidationError.value = ''
+  files.value.push(...newFiles)
 }
 
-// 移除文件
-const removeFile = (index) => {
+// 移除本地文件
+const removeLocalFile = (index) => {
   files.value.splice(index, 1)
+}
+
+// 合并文件库选择结果，并按 file_id 去重
+const handleLibrarySelection = (libraryFiles) => {
+  const uniqueFiles = Array.from(new Map(libraryFiles.map(file => [file.file_id, file])).values())
+  selectedLibraryFiles.value = uniqueFiles
+  selectedLibraryFileIds.value = Array.from(new Set(uniqueFiles.map(file => file.file_id)))
+  pickerOpen.value = false
+}
+
+// 移除已选择的文件库文件
+const removeLibraryFile = (fileId) => {
+  selectedLibraryFiles.value = selectedLibraryFiles.value.filter(file => file.file_id !== fileId)
+  selectedLibraryFileIds.value = selectedLibraryFileIds.value.filter(id => id !== fileId)
 }
 
 // 滚动到底部
@@ -297,14 +371,12 @@ const startSimulation = () => {
   if (!canSubmit.value || loading.value) return
 
   // 存储待上传的数据
-  import('../store/pendingUpload.js').then(({ setPendingUpload }) => {
-    setPendingUpload(files.value, formData.value.simulationRequirement)
+  setPendingUpload(files.value, formData.value.simulationRequirement, selectedLibraryFileIds.value)
 
-    // 立即跳转到Process页面（使用特殊标识表示新建项目）
-    router.push({
-      name: 'Process',
-      params: { projectId: 'new' }
-    })
+  // 立即跳转到Process页面（使用特殊标识表示新建项目）
+  router.push({
+    name: 'Process',
+    params: { projectId: 'new' }
   })
 }
 </script>
@@ -707,7 +779,6 @@ const startSimulation = () => {
   display: flex;
   align-items: center;
   justify-content: center;
-  cursor: pointer;
   transition: all 0.3s;
   background: #FAFAFA;
 }
@@ -719,6 +790,11 @@ const startSimulation = () => {
 .upload-zone:hover {
   background: #F0F0F0;
   border-color: #999;
+}
+
+.upload-zone.drag-over {
+  border-color: var(--orange);
+  background: #fff4ef;
 }
 
 .upload-placeholder {
@@ -766,17 +842,80 @@ const startSimulation = () => {
   font-size: 0.85rem;
 }
 
+.file-source {
+  flex: 0 0 auto;
+  padding: 3px 6px;
+  border: 1px solid #CCC;
+  color: #666;
+  font-size: 0.65rem;
+  letter-spacing: 0.04em;
+}
+
+.file-source.library {
+  border-color: #ffb79c;
+  color: #8c2800;
+  background: #fff3ee;
+}
+
 .file-name {
   flex: 1;
   margin: 0 10px;
 }
 
 .remove-btn {
+  min-width: 44px;
+  min-height: 44px;
   background: none;
   border: none;
   cursor: pointer;
   font-size: 1.2rem;
   color: #999;
+}
+
+.remove-btn:hover {
+  color: #a32016;
+}
+
+.upload-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.source-button {
+  min-height: 44px;
+  padding: 10px 14px;
+  border: 1px solid #CCC;
+  background: var(--white);
+  font-family: var(--font-mono);
+  font-weight: 700;
+  cursor: pointer;
+  transition: border-color 0.2s, color 0.2s;
+}
+
+.source-button:hover:not(:disabled) {
+  border-color: var(--orange);
+  color: #c73500;
+}
+
+.source-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.file-validation-error {
+  margin: 10px 0 0;
+  color: #b42318;
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  line-height: 1.5;
+}
+
+.source-button:focus-visible,
+.remove-btn:focus-visible {
+  outline: 2px solid var(--orange);
+  outline-offset: 2px;
 }
 
 .console-divider {
@@ -882,6 +1021,19 @@ const startSimulation = () => {
 
 /* 响应式适配 */
 @media (max-width: 1024px) {
+  .navbar {
+    height: auto;
+    min-height: 60px;
+    flex-wrap: wrap;
+    gap: 16px;
+    padding-top: 14px;
+    padding-bottom: 14px;
+  }
+
+  .nav-links {
+    flex-wrap: wrap;
+  }
+
   .dashboard-section {
     flex-direction: column;
   }
@@ -898,6 +1050,35 @@ const startSimulation = () => {
   .hero-logo {
     max-width: 200px;
     margin-bottom: 20px;
+  }
+}
+
+@media (max-width: 560px) {
+  .navbar,
+  .main-content {
+    padding-left: 20px;
+    padding-right: 20px;
+  }
+
+  .main-title {
+    font-size: 3rem;
+  }
+
+  .upload-actions {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .blinking-cursor,
+  .start-engine-btn:not(:disabled) {
+    animation: none;
+  }
+
+  .start-engine-btn,
+  .source-button,
+  .upload-zone {
+    transition-duration: 0.01ms;
   }
 }
 </style>

@@ -1,6 +1,12 @@
+import io
+import os
 from pathlib import Path
+import sqlite3
 import subprocess
 import sys
+
+import pytest
+from werkzeug.datastructures import FileStorage
 
 from app.models import database as database_module
 from app.models.database import (
@@ -9,9 +15,11 @@ from app.models.database import (
     unified_database_path,
 )
 from app.models.model_config import APIProtocol, AuthType, ModelCapability, ProviderVendor
+from app.models.project import ProjectManager
 from app.models.task_store import TaskStore
 from app.services.credential_cipher import CredentialCipher
 from app.services.model_config_store import ModelConfigStore
+from app.services.uploaded_file_store import UploadedFileStore
 
 
 def test_legacy_model_and_task_databases_migrate_idempotently(tmp_path):
@@ -36,6 +44,108 @@ def test_legacy_model_and_task_databases_migrate_idempotently(tmp_path):
     assert [item["task_id"] for item in TaskStore(destination).load()] == ["task-1"]
     assert legacy_models.exists()
     assert legacy_tasks.exists()
+
+
+def test_legacy_file_library_tables_and_delete_operations_are_copied(monkeypatch, tmp_path):
+    legacy_files = tmp_path / "legacy-files.db"
+    destination = tmp_path / "mirofishplus.db"
+    library_dir = tmp_path / "library"
+    target_store = UploadedFileStore(destination, library_dir)
+    source_store = UploadedFileStore(legacy_files, library_dir)
+    referenced = source_store.save_upload(
+        FileStorage(stream=io.BytesIO(b"legacy contents"), filename="legacy.txt"),
+        "legacy.txt",
+    )
+    pending = source_store.save_upload(
+        FileStorage(stream=io.BytesIO(b"pending contents"), filename="pending.txt"),
+        "pending.txt",
+    )
+    failed = source_store.save_upload(
+        FileStorage(stream=io.BytesIO(b"failed contents"), filename="failed.txt"),
+        "failed.txt",
+    )
+    monkeypatch.setattr(ProjectManager, "PROJECTS_DIR", str(tmp_path / "projects"))
+    late_project = ProjectManager.create_project("晚到项目")
+    pending_tombstone = f".{pending['stored_filename']}.deleting-delete_pending"
+    failed_tombstone = f".{failed['stored_filename']}.deleting-delete_failed"
+    os.replace(
+        library_dir / pending["stored_filename"],
+        library_dir / pending_tombstone,
+    )
+    with sqlite3.connect(legacy_files) as connection:
+        connection.execute("PRAGMA foreign_keys=ON")
+        connection.execute(
+            """
+            INSERT INTO project_files (project_id, file_id, position)
+            VALUES ('legacy-project', ?, 0)
+            """,
+            (referenced["file_id"],),
+        )
+        connection.executemany(
+            """
+            INSERT INTO uploaded_file_delete_operations (
+                operation_id, file_id, stored_filename, tombstone_filename,
+                state, last_error, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                (
+                    "delete_pending",
+                    pending["file_id"],
+                    pending["stored_filename"],
+                    pending_tombstone,
+                    "pending",
+                    None,
+                    "2026-09-04T00:00:00+00:00",
+                    "2026-09-04T00:00:00+00:00",
+                ),
+                (
+                    "delete_failed",
+                    failed["file_id"],
+                    failed["stored_filename"],
+                    failed_tombstone,
+                    "failed",
+                    "tombstone is busy",
+                    "2026-09-04T00:00:00+00:00",
+                    "2026-09-04T00:00:01+00:00",
+                ),
+            ],
+        )
+
+    initialize_unified_database(destination, legacy_files=legacy_files)
+
+    assert target_store.get_file(referenced["file_id"])["display_name"] == "legacy.txt"
+    assert target_store.list_references(referenced["file_id"]) == [
+        {"project_id": "legacy-project", "project_name": None, "position": 0}
+    ]
+    with sqlite3.connect(destination) as connection:
+        operations = connection.execute(
+            """
+            SELECT operation_id, state
+            FROM uploaded_file_delete_operations
+            ORDER BY operation_id
+            """
+        ).fetchall()
+    assert operations == [("delete_failed", "failed"), ("delete_pending", "pending")]
+    for deleting_file in (pending, failed):
+        with pytest.raises(sqlite3.IntegrityError, match="不存在或正在删除"):
+            target_store.add_project_references(
+                late_project.project_id,
+                [deleting_file["file_id"]],
+            )
+
+    recovered_store = UploadedFileStore(destination, library_dir)
+
+    assert recovered_store.get_file(pending["file_id"]) is None
+    assert recovered_store.get_file(failed["file_id"]) is None
+    assert not (library_dir / pending["stored_filename"]).exists()
+    assert not (library_dir / pending_tombstone).exists()
+    assert not (library_dir / failed["stored_filename"]).exists()
+    assert not (library_dir / failed_tombstone).exists()
+    with sqlite3.connect(destination) as connection:
+        assert connection.execute(
+            "SELECT COUNT(*) FROM uploaded_file_delete_operations"
+        ).fetchone()[0] == 0
 
 
 def test_default_services_reference_unified_database_path():

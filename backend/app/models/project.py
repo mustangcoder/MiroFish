@@ -5,13 +5,17 @@
 
 import os
 import json
+import logging
 import uuid
-import shutil
 from datetime import datetime
+from pathlib import Path
 from typing import Dict, Any, List, Optional
 from enum import Enum
 from dataclasses import dataclass, field, asdict
 from ..config import Config
+
+
+logger = logging.getLogger(__name__)
 
 
 class ProjectStatus(str, Enum):
@@ -33,7 +37,7 @@ class Project:
     updated_at: str
 
     # 文件信息
-    files: List[Dict[str, str]] = field(default_factory=list)  # [{filename, path, size}]
+    files: List[Dict[str, Any]] = field(default_factory=list)  # [{filename, path, size, file_id}]
     total_text_length: int = 0
 
     # 本体信息（接口1生成后填充）
@@ -185,9 +189,19 @@ class ProjectManager:
         """保存项目元数据"""
         project.updated_at = datetime.now().isoformat()
         meta_path = cls._get_project_meta_path(project.project_id)
-
-        with open(meta_path, 'w', encoding='utf-8') as f:
-            json.dump(project.to_dict(), f, ensure_ascii=False, indent=2)
+        temporary_path = os.path.join(
+            os.path.dirname(meta_path),
+            f".{os.path.basename(meta_path)}.{uuid.uuid4().hex}.tmp",
+        )
+        try:
+            with open(temporary_path, 'x', encoding='utf-8') as file:
+                json.dump(project.to_dict(), file, ensure_ascii=False, indent=2)
+                file.flush()
+                os.fsync(file.fileno())
+            os.replace(temporary_path, meta_path)
+        finally:
+            if os.path.exists(temporary_path):
+                os.unlink(temporary_path)
 
     @classmethod
     def get_project(cls, project_id: str) -> Optional[Project]:
@@ -225,8 +239,17 @@ class ProjectManager:
 
         projects = []
         for project_id in os.listdir(cls.PROJECTS_DIR):
-            project = cls.get_project(project_id)
+            if project_id.startswith("."):
+                continue
+            try:
+                project = cls.get_project(project_id)
+            except (OSError, json.JSONDecodeError, KeyError, TypeError, ValueError) as error:
+                logger.warning("跳过无法读取的项目元数据：project_id=%s, error=%s", project_id, error)
+                continue
             if project:
+                if not isinstance(project.created_at, str):
+                    logger.warning("跳过 created_at 格式无效的项目：project_id=%s", project_id)
+                    continue
                 projects.append(project)
 
         # 按创建时间倒序排序
@@ -270,13 +293,15 @@ class ProjectManager:
         Returns:
             是否删除成功
         """
-        project_dir = cls._get_project_dir(project_id)
+        from ..services.uploaded_file_store import UploadedFileStore
 
+        store = UploadedFileStore()
+        project_dir = cls._get_project_dir(project_id)
         if not os.path.exists(project_dir):
             return False
-
-        shutil.rmtree(project_dir)
-        return True
+        store.ensure_legacy_migration()
+        store.assert_project_sources_migrated(project_id)
+        return store.delete_project_directory(project_id, Path(project_dir))
 
     @classmethod
     def save_file_to_project(cls, project_id: str, file_storage, original_filename: str) -> Dict[str, str]:
