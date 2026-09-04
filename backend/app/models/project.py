@@ -48,6 +48,8 @@ class Project:
 
     # 配置
     simulation_requirement: Optional[str] = None
+    ontology_additional_context: Optional[str] = None
+    ontology_generation_pending: bool = False
     chunk_size: int = 500
     chunk_overlap: int = 50
     active_corpus: str = "full"
@@ -73,6 +75,8 @@ class Project:
             "zep_batch_id": self.zep_batch_id,
             "zep_batch_operation_id": self.zep_batch_operation_id,
             "simulation_requirement": self.simulation_requirement,
+            "ontology_additional_context": self.ontology_additional_context,
+            "ontology_generation_pending": self.ontology_generation_pending,
             "chunk_size": self.chunk_size,
             "chunk_overlap": self.chunk_overlap,
             "active_corpus": self.active_corpus,
@@ -102,6 +106,8 @@ class Project:
             zep_batch_id=data.get('zep_batch_id'),
             zep_batch_operation_id=data.get('zep_batch_operation_id'),
             simulation_requirement=data.get('simulation_requirement'),
+            ontology_additional_context=data.get('ontology_additional_context'),
+            ontology_generation_pending=data.get('ontology_generation_pending', False),
             chunk_size=data.get('chunk_size', 500),
             chunk_overlap=data.get('chunk_overlap', 50),
             active_corpus=data.get('active_corpus', 'full'),

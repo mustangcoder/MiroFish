@@ -3,6 +3,7 @@ MiroFishPlus Backend - Flask应用工厂
 """
 
 import os
+import threading
 import warnings
 
 # 抑制 multiprocessing resource_tracker 的警告（来自第三方库如 transformers）
@@ -103,12 +104,38 @@ def create_app(config_class=Config):
     app.register_blueprint(report_bp, url_prefix='/api/report')
     app.register_blueprint(model_settings_bp, url_prefix='/api/settings/models')
 
-    if uses_default_config and should_log_startup:
+    if (
+        uses_default_config
+        and should_log_startup
+        and "PYTEST_CURRENT_TEST" not in os.environ
+    ):
+        from .api.graph import (
+            recover_interrupted_graph_builds,
+            recover_interrupted_ontology_generations,
+        )
+        from .services.report_generation_runner import get_report_generation_runner
         from .services.simulation_preparation_runner import get_simulation_preparation_runner
 
-        recovered_count = get_simulation_preparation_runner().recover_pending()
-        if recovered_count:
-            logger.info("已恢复 %s 个环境准备任务", recovered_count)
+        def recover_workflows():
+            ontology_count = recover_interrupted_ontology_generations()
+            graph_count = recover_interrupted_graph_builds(app)
+            preparation_count = get_simulation_preparation_runner().recover_pending()
+            simulation_results = SimulationRunner.recover_interrupted_simulations()
+            report_count = get_report_generation_runner().recover_pending()
+            logger.info(
+                "启动恢复扫描完成: ontology=%s graph=%s preparation=%s simulation=%s report=%s",
+                ontology_count,
+                graph_count,
+                preparation_count,
+                len(simulation_results),
+                report_count,
+            )
+
+        threading.Thread(
+            target=recover_workflows,
+            daemon=True,
+            name="workflow-startup-recovery",
+        ).start()
     
     # 健康检查
     @app.route('/health')

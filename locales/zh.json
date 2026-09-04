@@ -180,6 +180,7 @@
     "generating": "生成中"
   },
   "step3": {
+    "recoveredFromRound": "服务已从第 {current}/{total} 轮检查点恢复，正在继续推演",
     "startGenerateReport": "开始生成结果报告",
     "generatingReport": "启动中...",
     "waitingForActions": "Waiting for agent actions...",

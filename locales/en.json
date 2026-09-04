@@ -180,6 +180,7 @@
     "generating": "Generating"
   },
   "step3": {
+    "recoveredFromRound": "Recovered from round {current}/{total}; simulation is continuing",
     "startGenerateReport": "Generate Report",
     "generatingReport": "Starting...",
     "waitingForActions": "Waiting for agent actions...",

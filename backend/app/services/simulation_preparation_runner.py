@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import threading
+import uuid
 from typing import Any, Callable
 
 from ..models.task import TaskManager, TaskStatus
@@ -12,6 +13,7 @@ from ..utils.locale import get_locale, set_locale, t
 from ..utils.logger import get_logger
 from .simulation_manager import SimulationManager, SimulationStatus
 from .simulation_prepare_store import SimulationPrepareStore
+from .workflow_run_store import WorkflowRunStore
 
 
 logger = get_logger("mirofish.simulation_preparation_runner")
@@ -27,6 +29,7 @@ class SimulationPreparationRunner:
         task_manager: TaskManager | None = None,
         manager_factory: Callable[[], SimulationManager] = SimulationManager,
         project_manager=None,
+        workflow_store: WorkflowRunStore | None = None,
     ):
         if project_manager is None:
             from ..models.project import ProjectManager
@@ -36,8 +39,11 @@ class SimulationPreparationRunner:
         self.task_manager = task_manager or TaskManager()
         self.manager_factory = manager_factory
         self.project_manager = project_manager
+        self.workflow_store = workflow_store or WorkflowRunStore()
+        self.owner = f"prepare-{uuid.uuid4().hex}"
         self._lock = threading.Lock()
         self._workers: dict[str, threading.Thread] = {}
+        self._retry_timer = None
 
     @staticmethod
     def _fingerprint(graph_id: str, params: dict[str, Any]) -> str:
@@ -106,7 +112,35 @@ class SimulationPreparationRunner:
                 self.store.update_run(active["run_id"], task_id=task_id)
                 active = self.store.get_run(active["run_id"])
 
+            workflow_run = self.workflow_store.create_or_get_run(
+                resource_type="simulation",
+                resource_id=simulation_id,
+                task_id=task_id,
+                stage="prepare",
+                input_fingerprint=active["input_fingerprint"],
+                checkpoint={
+                    "legacy_run_id": active["run_id"],
+                    "checkpoint_stage": active["stage"],
+                    "checkpoint_current": active["completed_profiles"],
+                    "checkpoint_total": active["total_profiles"],
+                },
+            )
+
             if not (worker and worker.is_alive()):
+                if not self.workflow_store.acquire_lease(
+                    workflow_run["run_id"], self.owner, 60
+                ):
+                    return {
+                        "simulation_id": simulation_id,
+                        "task_id": task_id,
+                        "run_id": active["run_id"],
+                        "status": "preparing",
+                        "reused": True,
+                        "recovered_profiles": active["completed_profiles"],
+                        "expected_entities_count": active["total_profiles"],
+                        "deferred": True,
+                    }
+                active = {**active, "workflow_run_id": workflow_run["run_id"]}
                 worker = threading.Thread(
                     target=self._execute,
                     args=(active,),
@@ -124,6 +158,7 @@ class SimulationPreparationRunner:
             "reused": reused,
             "recovered_profiles": active["completed_profiles"],
             "expected_entities_count": active["total_profiles"],
+            "deferred": False,
         }
 
     def _execute(self, run: dict[str, Any]) -> None:
@@ -196,6 +231,17 @@ class SimulationPreparationRunner:
                     message=detailed_message,
                     progress_detail=progress_detail,
                 )
+                self.workflow_store.heartbeat(
+                    run["workflow_run_id"],
+                    self.owner,
+                    {
+                        "legacy_run_id": run["run_id"],
+                        "checkpoint_stage": stage,
+                        "checkpoint_current": detail["current"],
+                        "checkpoint_total": detail["total"],
+                    },
+                    ttl_seconds=60,
+                )
 
             result = manager.prepare_simulation(
                 simulation_id=simulation_id,
@@ -211,10 +257,12 @@ class SimulationPreparationRunner:
             if result.status == SimulationStatus.FAILED:
                 raise RuntimeError(result.error or "模拟准备失败")
             self.store.update_run(run["run_id"], status="completed", stage="completed")
+            self.workflow_store.complete(run["workflow_run_id"])
             self.task_manager.complete_task(task_id, result=result.to_simple_dict())
         except Exception as error:
             logger.error("准备模拟失败: simulation_id=%s error=%s", simulation_id, error)
             self.store.update_run(run["run_id"], status="failed", error=str(error))
+            self.workflow_store.fail(run["workflow_run_id"], str(error))
             self.task_manager.fail_task(task_id, str(error))
         finally:
             with self._lock:
@@ -224,10 +272,14 @@ class SimulationPreparationRunner:
 
     def recover_pending(self) -> int:
         recovered = 0
+        deferred = False
         for run in self.store.list_recoverable_runs():
             try:
-                self.start(run["simulation_id"])
-                recovered += 1
+                result = self.start(run["simulation_id"])
+                if result.get("deferred"):
+                    deferred = True
+                else:
+                    recovered += 1
             except Exception as error:
                 logger.error(
                     "恢复准备任务失败: simulation_id=%s error=%s",
@@ -237,6 +289,12 @@ class SimulationPreparationRunner:
                 self.store.update_run(run["run_id"], status="failed", error=str(error))
                 if self.task_manager.get_task(run["task_id"]):
                     self.task_manager.fail_task(run["task_id"], str(error))
+        if deferred:
+            with self._lock:
+                if self._retry_timer is None or not self._retry_timer.is_alive():
+                    self._retry_timer = threading.Timer(65, self.recover_pending)
+                    self._retry_timer.daemon = True
+                    self._retry_timer.start()
         return recovered
 
     def wait(self, simulation_id: str, timeout: float | None = None) -> bool:

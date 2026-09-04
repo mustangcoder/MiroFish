@@ -11,6 +11,7 @@ from app.services.simulation_manager import SimulationStatus
 from app.services.simulation_runner import RunnerStatus
 from app.utils.zep_lifecycle import (
     get_graph_readers,
+    register_graph_reader,
     unregister_graph_reader,
 )
 
@@ -242,38 +243,14 @@ def test_report_reader_lease_blocks_graph_start_and_delete(monkeypatch):
     worker_targets = []
     runner_calls = []
 
-    class Tasks:
-        def create_task(self, **_kwargs):
-            return "task-1"
-
-        def update_task(self, *_args, **_kwargs):
-            pass
-
-        def complete_task(self, *_args, **_kwargs):
-            pass
-
-        def fail_task(self, *_args, **_kwargs):
-            pass
-
-    class ParkedThread:
-        def __init__(self, *, target, daemon):
-            assert daemon is True
-            self.target = target
-
-        def start(self):
-            worker_targets.append(self.target)
-
-    class Agent:
-        def __init__(self, **_kwargs):
-            pass
-
-        def generate_report(self, *, progress_callback, report_id):
-            progress_callback("mock", 100, "done")
-            return SimpleNamespace(
-                report_id=report_id,
-                status=report_api.ReportStatus.COMPLETED,
-                error=None,
+    class ParkedReportRunner:
+        def start(self, **kwargs):
+            report_id = kwargs["report_id"]
+            register_graph_reader(kwargs["graph_id"], report_id)
+            worker_targets.append(
+                lambda: unregister_graph_reader(kwargs["graph_id"], report_id)
             )
+            return {"report_id": report_id, "task_id": "task-1"}
 
     monkeypatch.setattr(
         report_api,
@@ -310,13 +287,10 @@ def test_report_reader_lease_blocks_graph_start_and_delete(monkeypatch):
         classmethod(lambda _cls, _simulation_id: None),
     )
     monkeypatch.setattr(
-        report_api.ReportManager,
-        "save_report",
-        classmethod(lambda _cls, _report: None),
+        report_api,
+        "get_report_generation_runner",
+        lambda: ParkedReportRunner(),
     )
-    monkeypatch.setattr(report_api, "TaskManager", Tasks)
-    monkeypatch.setattr(report_api, "ReportAgent", Agent)
-    monkeypatch.setattr(report_api.threading, "Thread", ParkedThread)
     monkeypatch.setattr(
         simulation_api.SimulationRunner,
         "start_simulation",

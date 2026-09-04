@@ -1,5 +1,6 @@
 from types import SimpleNamespace
 import threading
+import tempfile
 from queue import Queue
 
 import pytest
@@ -10,6 +11,7 @@ from app.services.zep_graph_memory_updater import (
     ZepGraphMemoryManager,
     ZepGraphMemoryUpdater,
 )
+from app.services.graph_ingestion_store import GraphIngestionStore
 
 
 def _activity(index=1, content="hello", *, platform="twitter", round_num=None):
@@ -38,11 +40,16 @@ def _client(add):
 def _updater(monkeypatch, add, simulation_id="sim-1"):
     client = _client(add)
     monkeypatch.setattr(updater_module, "get_zep_client", lambda _key: client)
+    temporary_directory = tempfile.TemporaryDirectory()
     updater = ZepGraphMemoryUpdater(
         "graph-1",
         api_key="test-key",
         simulation_id=simulation_id,
+        ingestion_store=GraphIngestionStore(
+            f"{temporary_directory.name}/mirofishplus.db"
+        ),
     )
+    updater._test_temporary_directory = temporary_directory
     updater.SEND_INTERVAL = 0
     return updater
 

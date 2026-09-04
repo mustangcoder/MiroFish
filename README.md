@@ -45,8 +45,8 @@
 | 上下文管理 | 依赖模型/API 默认行为 | 可配置模型最大上下文，按窗口动态裁剪，保持工具调用与结果成对，并为标准 Responses 启用自动截断 |
 | 配置持久化 | 主要依赖 `.env` | 模型、图谱后端、任务和准备检查点统一持久化到 `backend/uploads/mirofishplus.db` |
 | 环境准备恢复 | 页面或服务中断后可能重新开始 | 每完成人设即写入 SQLite 检查点；刷新页面或服务重启后只生成缺失部分 |
-| 模拟与图谱写入 | 双平台模拟并动态更新记忆 | 增加同轮次聚合、字符/Token 预算、限流退避、完成屏障和缺失 Episode 精确补写 |
-| 历史流程恢复 | 官方基础流程 | 根据持久化状态返回最近节点，避免从历史记录进入后重复生成人设或重启模拟 |
+| 模拟与图谱写入 | 双平台模拟并动态更新记忆 | 每个完整轮次保存 OASIS SQLite 快照与日志偏移；图谱批次使用 SQLite 幂等账本和确定性 Episode ID |
+| 历史流程恢复 | 官方基础流程 | 本体、图谱、人设、模拟、图谱写入和报告均保存安全检查点；刷新页面或服务重启后回到最近完整边界 |
 | 报告与采访 | ReportAgent 调用模拟环境和图谱工具 | 检查真实 OASIS 进程；陈旧 `alive` 状态会修正为 `stale`，采访不可用时立即回退到图谱检索 |
 | Docker 启动 | 复制 `.env` 后执行 `docker compose up -d`，默认拉取官方镜像 | `npm run docker:up` 构建最新本地代码，启动 Neo4j/Gateway，幂等初始化 SQLite 并等待健康检查 |
 | Hugging Face 模型 | 按运行环境下载 | 持久化缓存、预下载并设置明确的下载超时 |
@@ -146,7 +146,7 @@ cp .env.example .env
 
 Docker 部署会将 Hugging Face 模型缓存持久化到 `huggingface_cache` 卷，并在独立的 `hf-prefetch` 服务中预下载 OASIS Twitter 推荐模型。推演启动前会再次检查缓存；下载超过 15 分钟会明确失败，而不会让任务无限停留在运行中。
 
-MiroFishPlus 自有的模型配置、后台任务和环境准备检查点统一保存在 `backend/uploads/mirofishplus.db`。升级时会先无损复制旧 `mirofish.db`，再幂等导入旧的 `model-config/models.db` 与 `tasks/tasks.db`，并保留所有旧文件。OASIS 生成的 Twitter/Reddit 平台数据库仍按模拟单独保存。环境准备每完成一个人设都会提交检查点；服务异常重启后会复用原任务并从缺失的人设继续。
+MiroFishPlus 自有的模型配置、后台任务、工作流检查点和图谱写入账本统一保存在 `backend/uploads/mirofishplus.db`。升级时会先无损复制旧 `mirofish.db`，再幂等导入旧的 `model-config/models.db` 与 `tasks/tasks.db`，并保留所有旧文件。OASIS 生成的 Twitter/Reddit 平台数据库仍按模拟单独保存，同时每轮生成一致性快照；服务异常重启后会复用原任务，从最近完成的人设、图谱批次、模拟轮次或报告章节继续。Zep Cloud 无法确认结果的非幂等写入不会被盲目重放，而会明确标记为需要人工处理。
 
 ```env
 LLM_API_KEY=your_api_key

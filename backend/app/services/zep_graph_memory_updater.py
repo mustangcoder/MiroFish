@@ -3,10 +3,12 @@ Zep图谱记忆更新服务
 将模拟中的Agent活动动态更新到Zep图谱中
 """
 
+import hashlib
 import math
 import re
 import time
 import threading
+import uuid
 from typing import Dict, Any, List, Optional
 from dataclasses import dataclass
 from datetime import datetime
@@ -21,6 +23,7 @@ from ..utils.zep import (
     get_zep_client,
 )
 from .zep_factory import get_zep_client as get_adapter_client
+from .graph_ingestion_store import GraphIngestionStore
 
 logger = get_logger('mirofish.zep_graph_memory_updater')
 
@@ -251,6 +254,7 @@ class ZepGraphMemoryUpdater:
         graph_id: str,
         api_key: Optional[str] = None,
         simulation_id: Optional[str] = None,
+        ingestion_store: GraphIngestionStore | None = None,
     ):
         """
         初始化更新器
@@ -270,6 +274,11 @@ class ZepGraphMemoryUpdater:
             if not self.api_key:
                 raise ValueError("ZEP_API_KEY未配置")
             self.client = get_zep_client(self.api_key)
+        self._ingestion_store = ingestion_store or GraphIngestionStore()
+        self._ingestion_store.recover_abandoned_writes(
+            self.simulation_id,
+            deterministic=self._backend == "graphiti",
+        )
 
         # 活动队列
         self._activity_queue: Queue = Queue()
@@ -510,11 +519,35 @@ class ZepGraphMemoryUpdater:
 
         processed_count = 0
         for payload_activities, combined_text in self._build_episode_payloads(activities):
+            batch_key = None
             if deadline is not None and time.time() >= deadline:
                 raise _DrainDeadlineExceeded(processed_count)
             try:
                 character_count = len(combined_text)
                 estimated_token_count = self._estimate_tokens(combined_text)
+                batch_key = hashlib.sha256(
+                    (
+                        f"{self.simulation_id}\0{self.graph_id}\0{platform}\0"
+                        f"{payload_activities[0].round_num}\0{combined_text}"
+                    ).encode("utf-8")
+                ).hexdigest()
+                claimed = self._ingestion_store.claim(
+                    batch_key,
+                    self.simulation_id,
+                    self.graph_id,
+                    platform,
+                    payload_activities[0].round_num,
+                    len(payload_activities),
+                    character_count,
+                )
+                if not claimed:
+                    persisted = self._ingestion_store.get(batch_key)
+                    if persisted and persisted["status"] == "written":
+                        continue
+                    raise RuntimeError(
+                        f"图谱批次不可安全重放: batch={batch_key[:12]} "
+                        f"status={persisted['status'] if persisted else 'unknown'}"
+                    )
                 display_name = self._get_platform_display_name(platform)
                 logger.info(
                     "准备发送%s图谱批次: activities=%s, round=%s, chars=%s, estimated_tokens=%s",
@@ -528,7 +561,13 @@ class ZepGraphMemoryUpdater:
                 for attempt in range(self.PROVIDER_RETRY_ATTEMPTS):
                     try:
                         if getattr(self, '_backend', 'cloud') == 'graphiti':
-                            episode_uuid = self.client.add_episode(self.graph_id, combined_text, "text")
+                            deterministic_uuid = str(uuid.uuid5(uuid.NAMESPACE_URL, batch_key))
+                            episode_uuid = self.client.add_episode(
+                                self.graph_id,
+                                combined_text,
+                                "text",
+                                episode_uuid=deterministic_uuid,
+                            )
                         else:
                             episode = self.client.graph.add(
                                 graph_id=self.graph_id,
@@ -576,6 +615,7 @@ class ZepGraphMemoryUpdater:
                         time.sleep(delay)
                 if not episode_uuid:
                     raise RuntimeError("Zep graph.add returned no episode UUID")
+                self._ingestion_store.mark_written(batch_key, str(episode_uuid))
                 self._pending_episode_uuids.append(str(episode_uuid))
                 self._total_sent += 1
                 self._total_items_sent += len(payload_activities)
@@ -590,6 +630,16 @@ class ZepGraphMemoryUpdater:
                 # surface the incomplete batch to SimulationRunner.
                 logger.error(f"批量发送到Zep失败，未自动重放非幂等写入: {e}")
                 self._failed_count += 1
+                if batch_key is not None:
+                    retryable = (
+                        self._backend == "graphiti"
+                        or self._is_definitive_provider_rejection(e)
+                    )
+                    self._ingestion_store.mark_failed(
+                        batch_key,
+                        e,
+                        retryable=retryable,
+                    )
                 self._failed_batches.append({
                     "platform": platform,
                     "activities": payload_activities,

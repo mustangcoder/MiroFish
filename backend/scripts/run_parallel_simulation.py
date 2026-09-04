@@ -156,6 +156,7 @@ def init_logging_for_simulation(simulation_dir: str):
 
 
 from action_logger import SimulationLogManager, PlatformActionLogger
+from app.services.simulation_round_checkpoint import SimulationRoundCheckpoint
 from protocol_model_backend import create_simulation_model
 
 try:
@@ -1110,7 +1111,8 @@ async def run_twitter_simulation(
     simulation_dir: str,
     action_logger: Optional[PlatformActionLogger] = None,
     main_logger: Optional[SimulationLogManager] = None,
-    max_rounds: Optional[int] = None
+    max_rounds: Optional[int] = None,
+    resume_from_round: Optional[int] = None,
 ) -> PlatformSimulation:
     """运行Twitter模拟
     
@@ -1156,7 +1158,16 @@ async def run_twitter_simulation(
             agent_names[agent_id] = getattr(agent, 'name', f'Agent_{agent_id}')
     
     db_path = os.path.join(simulation_dir, "twitter_simulation.db")
-    if os.path.exists(db_path):
+    checkpoint_store = SimulationRoundCheckpoint(simulation_dir)
+    restored = None
+    if resume_from_round is not None:
+        restored = checkpoint_store.restore(
+            "twitter", db_path,
+            action_logger.log_path if action_logger else os.path.join(simulation_dir, "twitter", "actions.jsonl"),
+        )
+        if restored is None:
+            raise RuntimeError("找不到 Twitter 模拟轮次检查点，无法安全恢复")
+    elif os.path.exists(db_path):
         os.remove(db_path)
     
     result.env = oasis.make(
@@ -1167,24 +1178,27 @@ async def run_twitter_simulation(
     )
     
     await result.env.reset()
+    if restored:
+        result.env.platform.sandbox_clock.time_step = restored["completed_round"]
     log_info("环境已启动")
     
     if action_logger:
         action_logger.log_simulation_start(config)
     
-    total_actions = 0
-    last_rowid = 0  # 跟踪数据库中最后处理的行号（使用 rowid 避免 created_at 格式差异）
+    total_actions = restored["total_actions"] if restored else 0
+    with sqlite3.connect(db_path) as connection:
+        last_rowid = connection.execute("SELECT COALESCE(MAX(rowid), 0) FROM trace").fetchone()[0] if restored else 0
     
     # 执行初始事件
     event_config = config.get("event_config", {})
     initial_posts = event_config.get("initial_posts", [])
     
     # 记录 round 0 开始（初始事件阶段）
-    if action_logger:
+    if action_logger and not restored:
         action_logger.log_round_start(0, 0)  # round 0, simulated_hour 0
     
     initial_action_count = 0
-    if initial_posts:
+    if initial_posts and not restored:
         initial_actions = {}
         for post in initial_posts:
             agent_id = post.get("poster_agent_id", 0)
@@ -1214,8 +1228,9 @@ async def run_twitter_simulation(
             log_info(f"已发布 {len(initial_actions)} 条初始帖子")
     
     # 记录 round 0 结束
-    if action_logger:
+    if action_logger and not restored:
         action_logger.log_round_end(0, initial_action_count)
+        checkpoint_store.commit("twitter", 0, total_actions, db_path, action_logger.log_path)
     
     # 主模拟循环
     time_config = config.get("time_config", {})
@@ -1232,7 +1247,8 @@ async def run_twitter_simulation(
     
     start_time = datetime.now()
     
-    for round_num in range(total_rounds):
+    start_round = restored["completed_round"] if restored else 0
+    for round_num in range(start_round, total_rounds):
         # 检查是否收到退出信号
         if _shutdown_event and _shutdown_event.is_set():
             if main_logger:
@@ -1255,6 +1271,7 @@ async def run_twitter_simulation(
             # 没有活跃agent时也记录round结束（actions_count=0）
             if action_logger:
                 action_logger.log_round_end(round_num + 1, 0)
+                checkpoint_store.commit("twitter", round_num + 1, total_actions, db_path, action_logger.log_path)
             continue
         
         actions = {agent: LLMAction() for _, agent in active_agents}
@@ -1280,6 +1297,7 @@ async def run_twitter_simulation(
         
         if action_logger:
             action_logger.log_round_end(round_num + 1, round_action_count)
+            checkpoint_store.commit("twitter", round_num + 1, total_actions, db_path, action_logger.log_path)
         
         if (round_num + 1) % 20 == 0:
             progress = (round_num + 1) / total_rounds * 100
@@ -1302,7 +1320,8 @@ async def run_reddit_simulation(
     simulation_dir: str,
     action_logger: Optional[PlatformActionLogger] = None,
     main_logger: Optional[SimulationLogManager] = None,
-    max_rounds: Optional[int] = None
+    max_rounds: Optional[int] = None,
+    resume_from_round: Optional[int] = None,
 ) -> PlatformSimulation:
     """运行Reddit模拟
     
@@ -1347,7 +1366,16 @@ async def run_reddit_simulation(
             agent_names[agent_id] = getattr(agent, 'name', f'Agent_{agent_id}')
     
     db_path = os.path.join(simulation_dir, "reddit_simulation.db")
-    if os.path.exists(db_path):
+    checkpoint_store = SimulationRoundCheckpoint(simulation_dir)
+    restored = None
+    if resume_from_round is not None:
+        restored = checkpoint_store.restore(
+            "reddit", db_path,
+            action_logger.log_path if action_logger else os.path.join(simulation_dir, "reddit", "actions.jsonl"),
+        )
+        if restored is None:
+            raise RuntimeError("找不到 Reddit 模拟轮次检查点，无法安全恢复")
+    elif os.path.exists(db_path):
         os.remove(db_path)
     
     result.env = oasis.make(
@@ -1358,24 +1386,27 @@ async def run_reddit_simulation(
     )
     
     await result.env.reset()
+    if restored:
+        result.env.platform.sandbox_clock.time_step = restored["completed_round"]
     log_info("环境已启动")
     
     if action_logger:
         action_logger.log_simulation_start(config)
     
-    total_actions = 0
-    last_rowid = 0  # 跟踪数据库中最后处理的行号（使用 rowid 避免 created_at 格式差异）
+    total_actions = restored["total_actions"] if restored else 0
+    with sqlite3.connect(db_path) as connection:
+        last_rowid = connection.execute("SELECT COALESCE(MAX(rowid), 0) FROM trace").fetchone()[0] if restored else 0
     
     # 执行初始事件
     event_config = config.get("event_config", {})
     initial_posts = event_config.get("initial_posts", [])
     
     # 记录 round 0 开始（初始事件阶段）
-    if action_logger:
+    if action_logger and not restored:
         action_logger.log_round_start(0, 0)  # round 0, simulated_hour 0
     
     initial_action_count = 0
-    if initial_posts:
+    if initial_posts and not restored:
         initial_actions = {}
         for post in initial_posts:
             agent_id = post.get("poster_agent_id", 0)
@@ -1413,8 +1444,9 @@ async def run_reddit_simulation(
             log_info(f"已发布 {len(initial_actions)} 条初始帖子")
     
     # 记录 round 0 结束
-    if action_logger:
+    if action_logger and not restored:
         action_logger.log_round_end(0, initial_action_count)
+        checkpoint_store.commit("reddit", 0, total_actions, db_path, action_logger.log_path)
     
     # 主模拟循环
     time_config = config.get("time_config", {})
@@ -1431,7 +1463,8 @@ async def run_reddit_simulation(
     
     start_time = datetime.now()
     
-    for round_num in range(total_rounds):
+    start_round = restored["completed_round"] if restored else 0
+    for round_num in range(start_round, total_rounds):
         # 检查是否收到退出信号
         if _shutdown_event and _shutdown_event.is_set():
             if main_logger:
@@ -1454,6 +1487,7 @@ async def run_reddit_simulation(
             # 没有活跃agent时也记录round结束（actions_count=0）
             if action_logger:
                 action_logger.log_round_end(round_num + 1, 0)
+                checkpoint_store.commit("reddit", round_num + 1, total_actions, db_path, action_logger.log_path)
             continue
         
         actions = {agent: LLMAction() for _, agent in active_agents}
@@ -1479,6 +1513,7 @@ async def run_reddit_simulation(
         
         if action_logger:
             action_logger.log_round_end(round_num + 1, round_action_count)
+            checkpoint_store.commit("reddit", round_num + 1, total_actions, db_path, action_logger.log_path)
         
         if (round_num + 1) % 20 == 0:
             progress = (round_num + 1) / total_rounds * 100
@@ -1526,6 +1561,12 @@ async def main():
         default=False,
         help='模拟完成后立即关闭环境，不进入等待命令模式'
     )
+    parser.add_argument(
+        '--resume-from-round',
+        type=int,
+        default=None,
+        help='从最近一次完整轮次检查点恢复（参数用于审计期望轮次）'
+    )
     
     args = parser.parse_args()
     
@@ -1545,7 +1586,10 @@ async def main():
     init_logging_for_simulation(simulation_dir)
     
     # 创建日志管理器
-    log_manager = SimulationLogManager(simulation_dir)
+    log_manager = SimulationLogManager(
+        simulation_dir,
+        append=args.resume_from_round is not None,
+    )
     twitter_logger = log_manager.get_twitter_logger()
     reddit_logger = log_manager.get_reddit_logger()
     
@@ -1584,14 +1628,14 @@ async def main():
     reddit_result: Optional[PlatformSimulation] = None
     
     if args.twitter_only:
-        twitter_result = await run_twitter_simulation(config, simulation_dir, twitter_logger, log_manager, args.max_rounds)
+        twitter_result = await run_twitter_simulation(config, simulation_dir, twitter_logger, log_manager, args.max_rounds, args.resume_from_round)
     elif args.reddit_only:
-        reddit_result = await run_reddit_simulation(config, simulation_dir, reddit_logger, log_manager, args.max_rounds)
+        reddit_result = await run_reddit_simulation(config, simulation_dir, reddit_logger, log_manager, args.max_rounds, args.resume_from_round)
     else:
         # 并行运行（每个平台使用独立的日志记录器）
         results = await asyncio.gather(
-            run_twitter_simulation(config, simulation_dir, twitter_logger, log_manager, args.max_rounds),
-            run_reddit_simulation(config, simulation_dir, reddit_logger, log_manager, args.max_rounds),
+            run_twitter_simulation(config, simulation_dir, twitter_logger, log_manager, args.max_rounds, args.resume_from_round),
+            run_reddit_simulation(config, simulation_dir, reddit_logger, log_manager, args.max_rounds, args.resume_from_round),
         )
         twitter_result, reddit_result = results
     

@@ -20,4 +20,4 @@ def test_graph_and_report_tasks_include_project_metadata():
     report_api = (root / "backend" / "app" / "api" / "report.py").read_text()
 
     assert "metadata={'project_id': project_id}" in graph_api
-    assert '"project_id": state.project_id' in report_api
+    assert "project_id=state.project_id" in report_api

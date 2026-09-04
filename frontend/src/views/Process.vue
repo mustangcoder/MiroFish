@@ -628,6 +628,13 @@ const loadProject = async () => {
       projectData.value = response.data
       updatePhaseByStatus(response.data.status)
 
+      if (response.data.ontology_generation_pending) {
+        currentPhase.value = 0
+        ontologyProgress.value = { message: '正在从已保存的文档恢复本体生成...' }
+        startOntologyRecoveryPolling()
+        return
+      }
+
       // 自动开始图谱构建
       if (response.data.status === 'ontology_generated' && !response.data.graph_id) {
         await startBuildGraph()
@@ -653,6 +660,30 @@ const loadProject = async () => {
   } finally {
     loading.value = false
   }
+}
+
+const startOntologyRecoveryPolling = () => {
+  stopPolling()
+  pollTimer = setInterval(async () => {
+    try {
+      const response = await getProject(currentProjectId.value)
+      if (!response.success) return
+      projectData.value = response.data
+      if (response.data.status === 'failed') {
+        stopPolling()
+        ontologyProgress.value = null
+        error.value = response.data.error || '本体恢复失败'
+        return
+      }
+      if (response.data.status === 'ontology_generated') {
+        stopPolling()
+        ontologyProgress.value = null
+        await startBuildGraph()
+      }
+    } catch (err) {
+      console.warn('Poll ontology recovery failed:', err)
+    }
+  }, 2000)
 }
 
 const updatePhaseByStatus = (status) => {

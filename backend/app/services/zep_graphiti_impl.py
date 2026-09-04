@@ -432,7 +432,41 @@ class GraphitiClient(ZepClientAdapter):
 
     # ==================== Episode 操作 ====================
 
-    def add_episode(self, graph_id: str, data: str, episode_type: str = "text") -> str:
+    async def _prepare_deterministic_episodes(self, graph_id, episodes):
+        """为确定性 UUID 创建可恢复占位节点，并返回已处理 UUID。"""
+        driver = self._driver.clone(database=graph_id)
+        deterministic = [episode for episode in episodes if episode.get("uuid")]
+        if not deterministic:
+            return driver, set()
+        uuids = [episode["uuid"] for episode in deterministic]
+        records, _, _ = await driver.execute_query(
+            "MATCH (e:Episodic) WHERE e.uuid IN $uuids "
+            "RETURN e.uuid AS uuid, coalesce(e.mirofish_processed, false) AS processed",
+            uuids=uuids,
+            routing_="r",
+        )
+        existing = {record["uuid"] for record in records}
+        missing = [episode for episode in deterministic if episode["uuid"] not in existing]
+        if missing:
+            await driver.execute_query(
+                "UNWIND $episodes AS item "
+                "MERGE (e:Episodic {uuid: item.uuid}) "
+                "ON CREATE SET e.name=item.name, e.group_id=$group_id, e.source=item.source, "
+                "e.source_description=item.source_description, e.content=item.content, "
+                "e.created_at=item.created_at, e.valid_at=item.valid_at, e.entity_edges=[]",
+                episodes=missing,
+                group_id=graph_id,
+            )
+        processed = {record["uuid"] for record in records if record["processed"]}
+        return driver, processed
+
+    def add_episode(
+        self,
+        graph_id: str,
+        data: str,
+        episode_type: str = "text",
+        episode_uuid: str | None = None,
+    ) -> str:
         """添加单条 episode"""
         self._ensure_initialized()
 
@@ -446,15 +480,40 @@ class GraphitiClient(ZepClientAdapter):
             source_type = EpisodeType.json
 
         async def _add():
+            if episode_uuid:
+                driver, processed = await self._prepare_deterministic_episodes(
+                    graph_id,
+                    [{
+                        "uuid": episode_uuid,
+                        "name": f"episode_{graph_id}_{episode_uuid}",
+                        "source": source_type.value,
+                        "source_description": "mirofish_simulation",
+                        "content": data,
+                        "created_at": datetime.now(timezone.utc),
+                        "valid_at": datetime.now(timezone.utc),
+                    }],
+                )
+                if episode_uuid in processed:
+                    return episode_uuid
             result = await self._graphiti.add_episode(
-                name=f"episode_{graph_id}_{datetime.now().strftime('%Y%m%d%H%M%S')}",
+                name=(
+                    f"episode_{graph_id}_{episode_uuid}"
+                    if episode_uuid
+                    else f"episode_{graph_id}_{datetime.now().strftime('%Y%m%d%H%M%S')}"
+                ),
                 episode_body=data,
                 source=source_type,
                 source_description="mirofish_simulation",
                 reference_time=datetime.now(timezone.utc),
                 group_id=graph_id,
+                uuid=episode_uuid,
                 **self._ontology_kwargs(graph_id),
             )
+            if episode_uuid:
+                await driver.execute_query(
+                    "MATCH (e:Episodic {uuid: $uuid}) SET e.mirofish_processed=true",
+                    uuid=episode_uuid,
+                )
             return result.episode.uuid if result and result.episode else ""
 
         return _run_async(_add())
@@ -483,6 +542,7 @@ class GraphitiClient(ZepClientAdapter):
             raw_episodes.append(
                 RawEpisode(
                     name=f"episode_{graph_id}_{i}_{datetime.now().strftime('%Y%m%d%H%M%S')}",
+                    uuid=ep.get("uuid"),
                     content=ep.get("data", ""),
                     source=source_type,
                     source_description="mirofish_simulation",
@@ -491,13 +551,37 @@ class GraphitiClient(ZepClientAdapter):
             )
 
         async def _add_bulk():
+            driver, processed = await self._prepare_deterministic_episodes(
+                graph_id,
+                [{
+                    "uuid": episode.uuid,
+                    "name": episode.name,
+                    "source": episode.source.value,
+                    "source_description": episode.source_description,
+                    "content": episode.content,
+                    "created_at": datetime.now(timezone.utc),
+                    "valid_at": episode.reference_time,
+                } for episode in raw_episodes],
+            )
+            pending = [episode for episode in raw_episodes if episode.uuid not in processed]
+            if not pending:
+                return [episode.uuid for episode in raw_episodes]
             result = await self._graphiti.add_episode_bulk(
-                bulk_episodes=raw_episodes,
+                bulk_episodes=pending,
                 group_id=graph_id,
                 **self._ontology_kwargs(graph_id),
             )
-            # 返回所有 episode UUID
-            return [ep.uuid for ep in result.episodes] if result and result.episodes else []
+            created = {episode.uuid for episode in result.episodes} if result and result.episodes else set()
+            if created:
+                await driver.execute_query(
+                    "MATCH (e:Episodic) WHERE e.uuid IN $uuids SET e.mirofish_processed=true",
+                    uuids=list(created),
+                )
+            return [
+                episode.uuid
+                for episode in raw_episodes
+                if episode.uuid in processed or episode.uuid in created
+            ]
 
         return _run_async(_add_bulk())
 

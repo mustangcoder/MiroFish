@@ -103,6 +103,10 @@
       </div>
     </div>
 
+    <div v-if="runStatus.recovered_from_round !== null && runStatus.recovered_from_round !== undefined" class="recovery-banner">
+      {{ $t('step3.recoveredFromRound', { current: runStatus.recovered_from_round, total: runStatus.total_rounds || maxRounds || '?' }) }}
+    </div>
+
     <!-- Main Content: Dual Timeline -->
     <div class="main-content-area" ref="scrollContainer">
       <!-- Timeline Header -->
@@ -1318,6 +1322,14 @@ onUnmounted(() => {
 .log-time { color: #555; min-width: 75px; }
 .log-msg { color: #BBB; word-break: break-all; }
 .mono { font-family: 'JetBrains Mono', monospace; }
+
+.recovery-banner {
+  padding: 9px 16px;
+  border-bottom: 1px solid #b8d9ff;
+  background: #eef6ff;
+  color: #155a9c;
+  font-size: 12px;
+}
 
 /* Loading spinner for button */
 .loading-spinner-small {

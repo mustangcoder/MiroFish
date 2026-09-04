@@ -17,7 +17,9 @@ from app.models.task_store import TaskStore
 from app.services.credential_cipher import CredentialCipher
 from app.services.memory_backend_config_service import MemoryBackendConfigService
 from app.services.model_config_store import ModelConfigStore
+from app.services.graph_ingestion_store import GraphIngestionStore
 from app.services.simulation_prepare_store import SimulationPrepareStore
+from app.services.workflow_run_store import WorkflowRunStore
 
 
 REQUIRED_TABLES = {
@@ -33,6 +35,9 @@ REQUIRED_TABLES = {
     "simulation_prepare_profiles",
     "simulation_prepare_runs",
     "task_history",
+    "workflow_checkpoint_events",
+    "workflow_runs",
+    "graph_ingestion_batches",
 }
 
 
@@ -53,6 +58,8 @@ def bootstrap(
     initialize_unified_database(path)
     model_store = ModelConfigStore(path, cipher)
     SimulationPrepareStore(path)
+    WorkflowRunStore(path)
+    GraphIngestionStore(path)
     memory_service = MemoryBackendConfigService(
         store=model_store,
         environment=environment if environment is not None else os.environ,

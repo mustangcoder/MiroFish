@@ -146,7 +146,7 @@ Supports OpenAI Responses, OpenAI Chat Completions, and Anthropic Messages. For 
 
 Docker persists Hugging Face assets in the `huggingface_cache` volume and pre-downloads the OASIS Twitter recommender through the separate `hf-prefetch` service. Simulation startup verifies the cache again and fails clearly after a 15-minute download timeout instead of remaining indefinitely in the running state.
 
-MiroFishPlus-owned model configuration, background tasks, and environment-preparation checkpoints share `backend/uploads/mirofishplus.db`. Upgrades first copy the legacy `mirofish.db` without removing it, then idempotently import `model-config/models.db` and `tasks/tasks.db` while retaining every source file. OASIS Twitter and Reddit databases remain separate per simulation. Each completed persona is committed as a checkpoint, so an abnormal service restart reuses the original task and continues with only the missing personas.
+MiroFishPlus-owned model configuration, background tasks, workflow checkpoints, and graph-ingestion ledger share `backend/uploads/mirofishplus.db`. Upgrades first copy the legacy `mirofish.db` without removing it, then idempotently import `model-config/models.db` and `tasks/tasks.db` while retaining every source file. OASIS Twitter and Reddit databases remain separate per simulation and receive a consistent snapshot at every completed round. After an abnormal restart, the original task resumes from the latest completed persona, graph batch, simulation round, or report section. Ambiguous non-idempotent Zep Cloud writes are surfaced for manual handling instead of being replayed blindly.
 
 ```env
 LLM_API_KEY=your_api_key

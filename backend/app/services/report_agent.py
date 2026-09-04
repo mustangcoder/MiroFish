@@ -1576,7 +1576,8 @@ class ReportAgent:
     def generate_report(
         self,
         progress_callback: Optional[Callable[[str, int, str], None]] = None,
-        report_id: Optional[str] = None
+        report_id: Optional[str] = None,
+        resume: bool = True,
     ) -> Report:
         """
         生成完整报告（分章节实时输出）
@@ -1641,21 +1642,21 @@ class ReportAgent:
 
             # 阶段1: 规划大纲
             report.status = ReportStatus.PLANNING
-            ReportManager.update_progress(
-                report_id, "planning", 5, t('progress.startPlanningOutline'),
-                completed_sections=[]
-            )
-
-            # 记录规划开始日志
-            self.report_logger.log_planning_start()
-
-            if progress_callback:
-                progress_callback("planning", 0, t('progress.startPlanningOutline'))
-
-            outline = self.plan_outline(
-                progress_callback=lambda stage, prog, msg:
-                    progress_callback(stage, prog // 5, msg) if progress_callback else None
-            )
+            outline = ReportManager.load_outline(report_id) if resume else None
+            if outline is None:
+                ReportManager.update_progress(
+                    report_id, "planning", 5, t('progress.startPlanningOutline'),
+                    completed_sections=[]
+                )
+                self.report_logger.log_planning_start()
+                if progress_callback:
+                    progress_callback("planning", 0, t('progress.startPlanningOutline'))
+                outline = self.plan_outline(
+                    progress_callback=lambda stage, prog, msg:
+                        progress_callback(stage, prog // 5, msg) if progress_callback else None
+                )
+            else:
+                logger.info("从检查点复用报告大纲: report_id=%s", report_id)
             report.outline = outline
 
             # 记录规划完成日志
@@ -1680,6 +1681,17 @@ class ReportAgent:
             for i, section in enumerate(outline.sections):
                 section_num = i + 1
                 base_progress = 20 + int((i / total_sections) * 70)
+
+                restored_content = (
+                    ReportManager.load_valid_section(report_id, section_num, section.title)
+                    if resume else None
+                )
+                if restored_content is not None:
+                    section.content = restored_content
+                    generated_sections.append(f"## {section.title}\n\n{restored_content}")
+                    completed_section_titles.append(section.title)
+                    logger.info("从检查点复用报告章节: report_id=%s, section=%s", report_id, section_num)
+                    continue
 
                 # 更新进度
                 ReportManager.update_progress(
@@ -2139,6 +2151,37 @@ class ReportManager:
         logger.info(t('report.outlineSaved', reportId=report_id))
 
     @classmethod
+    def load_outline(cls, report_id: str) -> Optional[ReportOutline]:
+        path = cls._get_outline_path(report_id)
+        if not os.path.exists(path):
+            return None
+        try:
+            with open(path, "r", encoding="utf-8") as handle:
+                data = json.load(handle)
+            return ReportOutline(
+                title=data["title"], summary=data.get("summary", ""),
+                sections=[ReportSection(title=item["title"], content=item.get("content", ""))
+                          for item in data.get("sections", [])],
+            )
+        except (OSError, KeyError, TypeError, json.JSONDecodeError):
+            return None
+
+    @classmethod
+    def load_valid_section(cls, report_id: str, section_index: int, title: str) -> Optional[str]:
+        path = cls._get_section_path(report_id, section_index)
+        if not os.path.exists(path):
+            return None
+        try:
+            with open(path, "r", encoding="utf-8") as handle:
+                text = handle.read()
+            prefix = f"## {title}\n\n"
+            if not text.startswith(prefix):
+                return None
+            return text[len(prefix):].strip()
+        except OSError:
+            return None
+
+    @classmethod
     def save_section(
         cls,
         report_id: str,
@@ -2169,8 +2212,12 @@ class ReportManager:
         # 保存文件
         file_suffix = f"section_{section_index:02d}.md"
         file_path = os.path.join(cls._get_report_folder(report_id), file_suffix)
-        with open(file_path, 'w', encoding='utf-8') as f:
+        temporary_path = f"{file_path}.tmp"
+        with open(temporary_path, 'w', encoding='utf-8') as f:
             f.write(md_content)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(temporary_path, file_path)
 
         logger.info(t('report.sectionFileSaved', reportId=report_id, fileSuffix=file_suffix))
         return file_path

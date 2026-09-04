@@ -456,7 +456,17 @@ class GraphBuilderService:
                     )
                 episode_uuids.extend(self.client.add_episode_batch(
                     graph_id,
-                    [{"data": chunk, "type": "text"} for chunk in batch_chunks],
+                    [
+                        {
+                            "data": chunk,
+                            "type": "text",
+                            "uuid": str(uuid.uuid5(
+                                uuid.NAMESPACE_URL,
+                                f"{operation_id}:{i + offset}",
+                            )),
+                        }
+                        for offset, chunk in enumerate(batch_chunks)
+                    ],
                 ))
             return BatchSubmission("graphiti-sync", operation_id, episode_uuids, total_chunks)
 

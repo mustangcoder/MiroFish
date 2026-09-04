@@ -230,6 +230,23 @@ class TaskManager:
             message="任务失败",
             error=error
         )
+
+    def revive_task(self, task_id: str, message: str, progress_detail: Optional[Dict] = None) -> bool:
+        """使用原任务 ID 将中断任务恢复为处理中。"""
+        with self._task_lock:
+            task = self._tasks.get(task_id)
+            if task is None or task.status not in {
+                TaskStatus.INTERRUPTED, TaskStatus.PENDING, TaskStatus.PROCESSING,
+            }:
+                return False
+            task.status = TaskStatus.PROCESSING
+            task.message = message
+            task.error = None
+            task.updated_at = datetime.now()
+            if progress_detail is not None:
+                task.progress_detail = progress_detail
+        self._persist()
+        return True
     
     def list_tasks(
         self,

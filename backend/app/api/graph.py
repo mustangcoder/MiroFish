@@ -131,6 +131,48 @@ def allowed_file(filename: str) -> bool:
     return ext in Config.ALLOWED_EXTENSIONS
 
 
+def _generate_and_save_ontology(project, document_texts, additional_context=None):
+    ontology = OntologyGenerator().generate(
+        document_texts=document_texts,
+        simulation_requirement=project.simulation_requirement,
+        additional_context=additional_context or None,
+    )
+    project.ontology = {
+        "entity_types": ontology.get("entity_types", []),
+        "edge_types": ontology.get("edge_types", []),
+    }
+    project.analysis_summary = ontology.get("analysis_summary", "")
+    project.status = ProjectStatus.ONTOLOGY_GENERATED
+    project.ontology_generation_pending = False
+    project.error = None
+    ProjectManager.save_project(project)
+    return ontology
+
+
+def recover_interrupted_ontology_generations():
+    recovered = 0
+    for project in ProjectManager.list_projects(limit=None):
+        if not project.ontology_generation_pending or project.ontology:
+            continue
+        try:
+            text = ProjectManager.get_extracted_text(project.project_id)
+            if not text:
+                raise RuntimeError("本体恢复缺少已提取文本")
+            _generate_and_save_ontology(
+                project,
+                [text],
+                project.ontology_additional_context,
+            )
+            recovered += 1
+        except Exception as error:
+            project.status = ProjectStatus.FAILED
+            project.error = str(error)
+            project.ontology_generation_pending = False
+            ProjectManager.save_project(project)
+            logger.exception("恢复本体生成失败: project_id=%s", project.project_id)
+    return recovered
+
+
 # ============== 项目管理接口 ==============
 
 @graph_bp.route('/project/<project_id>', methods=['GET'])
@@ -428,15 +470,17 @@ def generate_ontology():
         # 保存提取的文本
         project.total_text_length = len(all_text)
         ProjectManager.save_extracted_text(project.project_id, all_text)
+        project.ontology_additional_context = additional_context or None
+        project.ontology_generation_pending = True
+        ProjectManager.save_project(project)
         logger.info(f"文本提取完成，共 {len(all_text)} 字符")
 
         # 生成本体
         logger.info("调用 LLM 生成本体定义...")
-        generator = OntologyGenerator()
-        ontology = generator.generate(
-            document_texts=document_texts,
-            simulation_requirement=simulation_requirement,
-            additional_context=additional_context if additional_context else None
+        ontology = _generate_and_save_ontology(
+            project,
+            document_texts,
+            additional_context,
         )
 
         # 保存本体到项目
@@ -444,13 +488,6 @@ def generate_ontology():
         edge_count = len(ontology.get("edge_types", []))
         logger.info(f"本体生成完成: {entity_count} 个实体类型, {edge_count} 个关系类型")
 
-        project.ontology = {
-            "entity_types": ontology.get("entity_types", []),
-            "edge_types": ontology.get("edge_types", [])
-        }
-        project.analysis_summary = ontology.get("analysis_summary", "")
-        project.status = ProjectStatus.ONTOLOGY_GENERATED
-        ProjectManager.save_project(project)
         logger.info(f"=== 本体生成完成 === 项目ID: {project.project_id}")
 
         return jsonify({
@@ -499,6 +536,7 @@ def generate_ontology():
         if project is not None:
             project.status = ProjectStatus.FAILED
             project.error = public_error
+            project.ontology_generation_pending = False
             try:
                 ProjectManager.save_project(project)
             except Exception:
@@ -601,6 +639,7 @@ def _build_graph_impl():
             }), 400
 
         resume_existing_batch = False
+        resume_existing_graphiti = False
         if project.status == ProjectStatus.GRAPH_BUILDING:
             if _project_has_active_build(project):
                 return jsonify({
@@ -629,7 +668,14 @@ def _build_graph_impl():
                 }:
                     resume_existing_batch = True
 
-            if not resume_existing_batch:
+            if (
+                not force
+                and Config.ZEP_BACKEND == "graphiti"
+                and project.graph_id
+            ):
+                resume_existing_graphiti = True
+
+            if not resume_existing_batch and not resume_existing_graphiti:
                 project.status = ProjectStatus.FAILED
                 project.error = (
                     "Graph build task is no longer present; the persisted Zep "
@@ -719,14 +765,22 @@ def _build_graph_impl():
 
         # 创建异步任务
         task_manager = TaskManager()
-        try:
-            task_id = task_manager.create_task(
-                f"构建图谱: {graph_name}",
-                metadata={'project_id': project_id},
+        task_id = project.graph_build_task_id if resume_existing_graphiti else None
+        if task_id and task_manager.get_task(task_id):
+            task_manager.revive_task(
+                task_id,
+                "正在从图谱构建检查点继续",
+                {"recovering": True, "checkpoint_stage": "graph"},
             )
-        except TypeError:
-            # Compatibility with legacy/custom TaskManager implementations.
-            task_id = task_manager.create_task(f"构建图谱: {graph_name}")
+        else:
+            try:
+                task_id = task_manager.create_task(
+                    f"构建图谱: {graph_name}",
+                    metadata={'project_id': project_id},
+                )
+            except TypeError:
+                # Compatibility with legacy/custom TaskManager implementations.
+                task_id = task_manager.create_task(f"构建图谱: {graph_name}")
         logger.info(f"创建图谱构建任务: task_id={task_id}, project_id={project_id}")
 
         # 更新项目状态
@@ -787,20 +841,23 @@ def _build_graph_impl():
                     )
                 else:
                     # 创建图谱
-                    task_manager.update_task(
-                        task_id,
-                        message=t('progress.creatingZepGraph'),
-                        progress=10
-                    )
+                    if resume_existing_graphiti:
+                        graph_id = project.graph_id
+                    else:
+                        task_manager.update_task(
+                            task_id,
+                            message=t('progress.creatingZepGraph'),
+                            progress=10
+                        )
 
-                    def remember_graph(graph_id):
-                        project.graph_id = graph_id
-                        ProjectManager.save_project(project)
+                        def remember_graph(graph_id):
+                            project.graph_id = graph_id
+                            ProjectManager.save_project(project)
 
-                    graph_id = builder.create_graph(
-                        name=graph_name,
-                        graph_id_callback=remember_graph,
-                    )
+                        graph_id = builder.create_graph(
+                            name=graph_name,
+                            graph_id_callback=remember_graph,
+                        )
 
                     # 设置本体
                     task_manager.update_task(
@@ -917,7 +974,7 @@ def _build_graph_impl():
             "data": {
                 "project_id": project_id,
                 "task_id": task_id,
-                "resumed": resume_existing_batch,
+                "resumed": resume_existing_batch or resume_existing_graphiti,
                 "message": t('api.graphBuildStarted', taskId=task_id)
             }
         })
@@ -930,6 +987,36 @@ def _build_graph_impl():
             "error": str(e),
             "traceback": traceback.format_exc()
         }), 500
+
+
+def recover_interrupted_graph_builds(app):
+    """重新启动服务重启时中断的图谱构建线程。"""
+    recovered = 0
+    for project in ProjectManager.list_projects(limit=None):
+        if project.status != ProjectStatus.GRAPH_BUILDING:
+            continue
+        with app.test_request_context(
+            "/api/graph/build",
+            method="POST",
+            json={
+                "project_id": project.project_id,
+                "graph_name": project.name,
+                "chunk_size": project.chunk_size,
+                "chunk_overlap": project.chunk_overlap,
+                "corpus": project.active_corpus,
+            },
+        ):
+            response = build_graph()
+        status = response[1] if isinstance(response, tuple) else response.status_code
+        if status >= 400:
+            logger.error(
+                "自动恢复图谱构建失败: project_id=%s status=%s",
+                project.project_id,
+                status,
+            )
+            continue
+        recovered += 1
+    return recovered
 
 
 # ============== 任务查询接口 ==============

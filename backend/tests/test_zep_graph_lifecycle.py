@@ -153,6 +153,7 @@ def test_stale_build_after_restart_is_recoverable_instead_of_reused(monkeypatch)
     project.zep_batch_operation_id = None
     saved = []
     monkeypatch.setattr(graph_api.Config, "ZEP_API_KEY", "test-key")
+    monkeypatch.setattr(graph_api.Config, "ZEP_BACKEND", "cloud")
     monkeypatch.setattr(
         graph_api.ProjectManager,
         "get_project",

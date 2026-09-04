@@ -171,6 +171,35 @@ def test_graphiti_operation_timeout_is_configurable(monkeypatch):
     assert module._operation_timeout_seconds() == 3600
 
 
+def test_deterministic_episode_preparation_creates_missing_placeholder(monkeypatch):
+    graphiti_client, _ = _load_graphiti_client(monkeypatch)
+    client = graphiti_client.__new__(graphiti_client)
+    writes = []
+
+    class Driver:
+        def clone(self, **_kwargs):
+            return self
+
+        async def execute_query(self, query, **kwargs):
+            if query.startswith("MATCH"):
+                return ([{"uuid": "done", "processed": True}], None, None)
+            writes.append((query, kwargs))
+            return ([], None, None)
+
+    client._driver = Driver()
+    driver, processed = asyncio.run(client._prepare_deterministic_episodes(
+        "graph-1",
+        [
+            {"uuid": "done", "name": "done"},
+            {"uuid": "missing", "name": "missing"},
+        ],
+    ))
+
+    assert driver is client._driver
+    assert processed == {"done"}
+    assert writes[0][1]["episodes"] == [{"uuid": "missing", "name": "missing"}]
+
+
 def test_embedder_falls_back_to_openai_environment(monkeypatch):
     monkeypatch.setenv("OPENAI_API_KEY", "shared-key")
     monkeypatch.setenv("OPENAI_BASE_URL", "https://shared.example/v1")

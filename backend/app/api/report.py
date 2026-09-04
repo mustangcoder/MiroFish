@@ -5,7 +5,6 @@ Report API路由
 
 import os
 import traceback
-import threading
 from flask import request, jsonify, send_file
 
 from . import report_bp
@@ -15,14 +14,11 @@ from ..services.simulation_manager import SimulationManager
 from ..services.simulation_runner import SimulationRunner, RunnerStatus
 from ..services.zep_graph_memory_updater import ZepGraphMemoryManager
 from ..models.project import ProjectManager, ProjectStatus
-from ..models.task import TaskManager, TaskStatus
+from ..models.task import TaskManager
+from ..services.report_generation_runner import get_report_generation_runner
 from ..utils.logger import get_logger
-from ..utils.locale import t, get_locale, set_locale
-from ..utils.zep_lifecycle import (
-    graph_lifecycle_lock,
-    register_graph_reader,
-    unregister_graph_reader,
-)
+from ..utils.locale import t, get_locale
+from ..utils.zep_lifecycle import graph_lifecycle_lock
 
 logger = get_logger('mirofish.api.report')
 
@@ -243,74 +239,16 @@ def generate_report():
                         }
                     })
 
-            task_manager = TaskManager()
-            task_id = task_manager.create_task(
-                task_type="report_generate",
-                metadata={
-                    "project_id": state.project_id,
-                    "simulation_id": simulation_id,
-                    "graph_id": graph_id,
-                    "report_id": report_id
-                }
+            execution = get_report_generation_runner().start(
+                graph_id=graph_id,
+                simulation_id=simulation_id,
+                project_id=state.project_id,
+                simulation_requirement=simulation_requirement,
+                report_id=report_id,
+                locale=get_locale(),
             )
-            current_locale = get_locale()
-            register_graph_reader(graph_id, report_id)
-
-            def run_generate():
-                set_locale(current_locale)
-                try:
-                    task_manager.update_task(
-                        task_id,
-                        status=TaskStatus.PROCESSING,
-                        progress=0,
-                        message=t('api.initReportAgent')
-                    )
-
-                    agent = ReportAgent(
-                        graph_id=graph_id,
-                        simulation_id=simulation_id,
-                        simulation_requirement=simulation_requirement
-                    )
-
-                    def progress_callback(stage, progress, message):
-                        task_manager.update_task(
-                            task_id,
-                            progress=progress,
-                            message=f"[{stage}] {message}"
-                        )
-
-                    report = agent.generate_report(
-                        progress_callback=progress_callback,
-                        report_id=report_id
-                    )
-                    ReportManager.save_report(report)
-
-                    if report.status == ReportStatus.COMPLETED:
-                        task_manager.complete_task(
-                            task_id,
-                            result={
-                                "report_id": report.report_id,
-                                "simulation_id": simulation_id,
-                                "status": "completed"
-                            }
-                        )
-                    else:
-                        task_manager.fail_task(
-                            task_id,
-                            report.error or t('api.reportGenerateFailed')
-                        )
-                except Exception as e:
-                    logger.error(f"报告生成失败: {str(e)}")
-                    task_manager.fail_task(task_id, str(e))
-                finally:
-                    unregister_graph_reader(graph_id, report_id)
-
-            try:
-                thread = threading.Thread(target=run_generate, daemon=True)
-                thread.start()
-            except Exception:
-                unregister_graph_reader(graph_id, report_id)
-                raise
+            task_id = execution["task_id"]
+            report_id = execution["report_id"]
 
         return jsonify({
             "success": True,

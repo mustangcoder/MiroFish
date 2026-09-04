@@ -152,6 +152,11 @@ class SimulationRunState:
 
     # 进程ID（用于停止）
     process_pid: Optional[int] = None
+    platform: str = "parallel"
+    max_rounds: Optional[int] = None
+    graph_memory_update_enabled: bool = False
+    graph_id: Optional[str] = None
+    recovered_from_round: Optional[int] = None
 
     def add_action(self, action: AgentAction):
         """添加动作到最近动作列表"""
@@ -192,6 +197,11 @@ class SimulationRunState:
             "completed_at": self.completed_at,
             "error": self.error,
             "process_pid": self.process_pid,
+            "platform": self.platform,
+            "max_rounds": self.max_rounds,
+            "graph_memory_update_enabled": self.graph_memory_update_enabled,
+            "graph_id": self.graph_id,
+            "recovered_from_round": self.recovered_from_round,
         }
 
     def to_detail_dict(self) -> Dict[str, Any]:
@@ -332,6 +342,11 @@ class SimulationRunner:
                 completed_at=data.get("completed_at"),
                 error=data.get("error"),
                 process_pid=data.get("process_pid"),
+                platform=data.get("platform", "parallel"),
+                max_rounds=data.get("max_rounds"),
+                graph_memory_update_enabled=data.get("graph_memory_update_enabled", False),
+                graph_id=data.get("graph_id"),
+                recovered_from_round=data.get("recovered_from_round"),
             )
 
             # 加载最近动作
@@ -375,7 +390,8 @@ class SimulationRunner:
         platform: str = "parallel",  # twitter / reddit / parallel
         max_rounds: int = None,  # 最大模拟轮数（可选，用于截断过长的模拟）
         enable_graph_memory_update: bool = False,  # 是否将活动更新到Zep图谱
-        graph_id: str = None  # Zep图谱ID（启用图谱更新时必需）
+        graph_id: str = None,  # Zep图谱ID（启用图谱更新时必需）
+        resume_from_round: int = None,
     ) -> SimulationRunState:
         """
         启动模拟
@@ -419,6 +435,11 @@ class SimulationRunner:
             total_rounds=total_rounds,
             total_simulation_hours=total_hours,
             started_at=datetime.now().isoformat(),
+            platform=platform,
+            max_rounds=max_rounds,
+            graph_memory_update_enabled=enable_graph_memory_update,
+            graph_id=graph_id,
+            recovered_from_round=resume_from_round,
         )
 
         # Atomically claim this simulation ID. The expensive updater/process
@@ -432,10 +453,22 @@ class SimulationRunner:
                 RunnerStatus.PAUSED,
                 RunnerStatus.STOPPING,
             }
-            if (
-                existing and existing.runner_status in active_statuses
-            ) or ZepGraphMemoryManager.get_updater(simulation_id) is not None:
+            stale_resume = bool(
+                resume_from_round is not None
+                and existing
+                and simulation_id not in cls._processes
+                and ZepGraphMemoryManager.get_updater(simulation_id) is None
+            )
+            if ((existing and existing.runner_status in active_statuses and not stale_resume)
+                    or ZepGraphMemoryManager.get_updater(simulation_id) is not None):
                 raise ValueError(f"模拟已在运行或结束处理中: {simulation_id}")
+            if stale_resume:
+                state.started_at = existing.started_at
+                state.current_round = resume_from_round
+                state.twitter_current_round = min(existing.twitter_current_round, resume_from_round)
+                state.reddit_current_round = min(existing.reddit_current_round, resume_from_round)
+                state.twitter_actions_count = existing.twitter_actions_count
+                state.reddit_actions_count = existing.reddit_actions_count
             cls._save_run_state(state)
 
         # 如果启用图谱记忆更新，创建更新器
@@ -465,10 +498,10 @@ class SimulationRunner:
 
         # 确定运行哪个脚本（脚本位于 backend/scripts/ 目录）
         if platform == "twitter":
-            script_name = "run_twitter_simulation.py"
+            script_name = "run_parallel_simulation.py"
             state.twitter_running = True
         elif platform == "reddit":
-            script_name = "run_reddit_simulation.py"
+            script_name = "run_parallel_simulation.py"
             state.reddit_running = True
         else:
             script_name = "run_parallel_simulation.py"
@@ -525,14 +558,24 @@ class SimulationRunner:
                 script_path,
                 "--config", config_path,  # 使用完整配置文件路径
             ]
+            if platform == "twitter":
+                cmd.append("--twitter-only")
+            elif platform == "reddit":
+                cmd.append("--reddit-only")
 
             # 如果指定了最大轮数，添加到命令行参数
             if max_rounds is not None and max_rounds > 0:
                 cmd.extend(["--max-rounds", str(max_rounds)])
+            if resume_from_round is not None:
+                cmd.extend(["--resume-from-round", str(resume_from_round)])
 
             # 创建主日志文件，避免 stdout/stderr 管道缓冲区满导致进程阻塞
             main_log_path = os.path.join(sim_dir, "simulation.log")
-            main_log_file = open(main_log_path, 'w', encoding='utf-8')
+            main_log_file = open(
+                main_log_path,
+                'a' if resume_from_round is not None else 'w',
+                encoding='utf-8',
+            )
 
             # 设置子进程环境变量，确保 Windows 上使用 UTF-8 编码
             # 这可以修复第三方库（如 OASIS）读取文件时未指定编码的问题
@@ -1471,6 +1514,9 @@ class SimulationRunner:
             "stderr.log",
             "twitter_simulation.db",  # Twitter 平台数据库
             "reddit_simulation.db",   # Reddit 平台数据库
+            "twitter_simulation.checkpoint.db",
+            "reddit_simulation.checkpoint.db",
+            "round_checkpoint.json",
             "env_status.json",        # 环境状态文件
         ]
 
@@ -1702,6 +1748,69 @@ class SimulationRunner:
             if process.poll() is None:
                 running.append(sim_id)
         return running
+
+    @classmethod
+    def recover_interrupted_simulations(cls) -> Dict[str, str]:
+        """从各平台最后一个完整轮次自动恢复异常中断的模拟。"""
+        from .graph_ingestion_store import GraphIngestionStore
+
+        recovered = {}
+        ingestion_store = GraphIngestionStore()
+        if not os.path.isdir(cls.RUN_STATE_DIR):
+            return recovered
+        for simulation_id in os.listdir(cls.RUN_STATE_DIR):
+            if simulation_id in cls._processes:
+                continue
+            state = cls._load_run_state(simulation_id)
+            recoverable_status = state is not None and state.runner_status in {
+                RunnerStatus.STARTING, RunnerStatus.RUNNING, RunnerStatus.STOPPING,
+            }
+            recoverable_ingestion = bool(
+                state is not None
+                and state.runner_status == RunnerStatus.FAILED
+                and state.graph_memory_update_enabled
+                and ingestion_store.has_retryable(simulation_id)
+            )
+            if not recoverable_status and not recoverable_ingestion:
+                continue
+            checkpoint_path = os.path.join(
+                cls.RUN_STATE_DIR, simulation_id, "round_checkpoint.json"
+            )
+            try:
+                with open(checkpoint_path, "r", encoding="utf-8") as stream:
+                    platforms = json.load(stream).get("platforms", {})
+                required_platforms = (
+                    [state.platform]
+                    if state.platform in {"twitter", "reddit"}
+                    else ["twitter", "reddit"]
+                )
+                rounds = [
+                    int(platforms[name]["completed_round"])
+                    for name in required_platforms
+                ]
+                resume_from_round = min(rounds)
+                cls.start_simulation(
+                    simulation_id=simulation_id,
+                    platform=state.platform,
+                    max_rounds=state.max_rounds,
+                    enable_graph_memory_update=state.graph_memory_update_enabled,
+                    graph_id=state.graph_id,
+                    resume_from_round=resume_from_round,
+                )
+                recovered[simulation_id] = f"round:{resume_from_round}"
+                logger.info(
+                    "已从完整轮次恢复模拟: simulation_id=%s round=%s",
+                    simulation_id,
+                    resume_from_round,
+                )
+            except Exception as error:
+                recovered[simulation_id] = f"error:{error}"
+                logger.error(
+                    "恢复中断模拟失败: simulation_id=%s error=%s",
+                    simulation_id,
+                    error,
+                )
+        return recovered
 
     # ============== Interview 功能 ==============
 

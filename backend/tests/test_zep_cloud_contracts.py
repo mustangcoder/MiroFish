@@ -499,3 +499,21 @@ def test_installed_sdk_serializes_the_batch_325_contract():
         "source_description": "MiroFish source document chunk",
         "type": "graph_episode",
     }
+
+
+def test_graphiti_document_chunks_receive_stable_episode_uuids():
+    calls = []
+    builder = object.__new__(GraphBuilderService)
+    builder._backend = "graphiti"
+    builder.client = SimpleNamespace(
+        add_episode_batch=lambda graph_id, episodes: (
+            calls.append((graph_id, episodes))
+            or [episode["uuid"] for episode in episodes]
+        )
+    )
+
+    first = builder.add_text_batches("graph-id", ["one", "two"], batch_size=1)
+    second = builder.add_text_batches("graph-id", ["one", "two"], batch_size=2)
+
+    assert first.episode_uuids == second.episode_uuids
+    assert len(set(first.episode_uuids)) == 2
