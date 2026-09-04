@@ -42,6 +42,7 @@ if [[ "${SKIP_LEGACY_DOCKER_MIGRATION:-0}" != "1" ]]; then
     mirofish
     mirofish-bootstrap
     mirofish-direct-oauth-gateway
+    mirofishplus-direct-oauth-gateway
     mirofish-hf-prefetch
     mirofish-neo4j
   )
@@ -52,7 +53,11 @@ if [[ "${SKIP_LEGACY_DOCKER_MIGRATION:-0}" != "1" ]]; then
     fi
   done
 
-  "$SCRIPT_DIR/migrate-docker-volume.sh" mirofish_direct_oauth_credentials mirofishplus_direct_oauth_credentials
+  if "$DOCKER_BIN" volume inspect mirofishplus_direct_oauth_credentials >/dev/null 2>&1; then
+    "$SCRIPT_DIR/migrate-docker-volume.sh" mirofishplus_direct_oauth_credentials mirofishplus_chatgpt_oauth_credentials
+  else
+    "$SCRIPT_DIR/migrate-docker-volume.sh" mirofish_direct_oauth_credentials mirofishplus_chatgpt_oauth_credentials
+  fi
   "$SCRIPT_DIR/migrate-docker-volume.sh" mirofish_huggingface_cache mirofishplus_huggingface_cache
   "$SCRIPT_DIR/migrate-docker-volume.sh" mirofish_neo4j_data mirofishplus_neo4j_data
   "$SCRIPT_DIR/migrate-docker-volume.sh" mirofish_neo4j_logs mirofishplus_neo4j_logs
@@ -68,7 +73,7 @@ diagnose_failure() {
 trap diagnose_failure ERR
 
 echo "正在构建并启动 Neo4j、Gateway、数据库初始化任务和 MiroFishPlus..."
-"${COMPOSE[@]}" up -d --build
+"${COMPOSE[@]}" up -d --build --remove-orphans
 
 bootstrap_exit="$($DOCKER_BIN inspect -f '{{.State.ExitCode}}' mirofishplus-bootstrap)"
 if [[ "$bootstrap_exit" != "0" ]]; then

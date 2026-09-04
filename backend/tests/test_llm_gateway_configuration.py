@@ -14,19 +14,19 @@ def _read_env_template():
 def test_text_llm_uses_direct_gateway_while_embedding_stays_local():
     values = _read_env_template()
 
-    assert values["LLM_BASE_URL"] == "http://direct-oauth-gateway:8090/v1"
+    assert values["LLM_BASE_URL"] == "http://chatgpt-oauth-gateway:8090/v1"
     assert values["LLM_MODEL_NAME"] == values["DIRECT_CODEX_MODEL"]
     assert values["GRAPHITI_LLM_MODEL"] == values["DIRECT_CODEX_MODEL"]
     assert values["GRAPHITI_EMBEDDING_BASE_URL"] == "http://embedding:80/v1"
     assert not any(key.startswith("CODEX_GATEWAY") or key.startswith("FALLBACK_LLM") for key in values)
 
 
-def test_backend_depends_on_healthy_direct_gateway():
+def test_backend_depends_on_healthy_chatgpt_gateway():
     path = Path(__file__).resolve().parents[2] / "docker-compose.production.yml"
     compose = path.read_text()
     backend_section = compose.split("\n  backend:\n", 1)[1].split("\n  neo4j:", 1)[0]
 
-    assert "direct-oauth-gateway:" in backend_section
+    assert "chatgpt-oauth-gateway:" in backend_section
     assert "condition: service_healthy" in backend_section
 
 
@@ -34,7 +34,8 @@ def test_local_compose_runs_gateway_with_shared_internal_token():
     path = Path(__file__).resolve().parents[2] / "docker-compose.yml"
     compose = path.read_text()
 
-    assert "direct-oauth-gateway:" in compose
+    assert "chatgpt-oauth-gateway:" in compose
+    assert "DIRECT_OAUTH_GATEWAY_URL: http://chatgpt-oauth-gateway:8090" in compose
     assert compose.count("DIRECT_GATEWAY_TOKEN: ${DIRECT_GATEWAY_TOKEN:-mirofish-local-only}") == 2
     assert "condition: service_healthy" in compose
 

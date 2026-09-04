@@ -46,9 +46,11 @@ def test_compose_uses_mirofishplus_container_and_volume_names():
     main = _load("docker-compose.yml")
     local = _load("docker-compose.local.yml")
 
-    assert main["services"]["direct-oauth-gateway"]["container_name"] == "mirofishplus-direct-oauth-gateway"
+    gateway = main["services"]["chatgpt-oauth-gateway"]
+    assert gateway["container_name"] == "mirofishplus-chatgpt-oauth-gateway"
+    assert gateway["image"] == "mirofishplus-chatgpt-oauth-gateway:latest"
     assert main["services"]["hf-prefetch"]["container_name"] == "mirofishplus-hf-prefetch"
-    assert main["volumes"]["direct_oauth_credentials"]["name"] == "mirofishplus_direct_oauth_credentials"
+    assert main["volumes"]["chatgpt_oauth_credentials"]["name"] == "mirofishplus_chatgpt_oauth_credentials"
     assert main["volumes"]["huggingface_cache"]["name"] == "mirofishplus_huggingface_cache"
     assert local["volumes"]["neo4j_data"]["name"] == "mirofishplus_neo4j_data"
     assert local["volumes"]["neo4j_logs"]["name"] == "mirofishplus_neo4j_logs"
@@ -62,16 +64,27 @@ def test_production_compose_uses_mirofishplus_names():
         service["container_name"]
         for service in production["services"].values()
     } == {
-        "mirofishplus-direct-oauth-gateway",
+        "mirofishplus-chatgpt-oauth-gateway",
         "mirofishplus-web",
         "mirofishplus-backend",
         "mirofishplus-neo4j",
         "mirofishplus-embedding",
     }
     assert {volume["name"] for volume in production["volumes"].values()} == {
-        "mirofishplus_direct_oauth_credentials",
+        "mirofishplus_chatgpt_oauth_credentials",
         "mirofishplus_neo4j_data",
         "mirofishplus_neo4j_logs",
         "mirofishplus_embedding_cache",
         "mirofishplus_uploads",
     }
+
+
+def test_local_start_migrates_existing_oauth_credentials_to_new_volume():
+    source = (ROOT / "scripts/start-local.sh").read_text(encoding="utf-8")
+
+    assert "mirofishplus-direct-oauth-gateway" in source
+    assert (
+        'migrate-docker-volume.sh" mirofishplus_direct_oauth_credentials '
+        "mirofishplus_chatgpt_oauth_credentials"
+    ) in source
+    assert '"${COMPOSE[@]}" up -d --build --remove-orphans' in source

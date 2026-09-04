@@ -242,7 +242,7 @@ def test_llm_prefers_dedicated_graphiti_environment(monkeypatch):
     monkeypatch.setenv("OPENAI_BASE_URL", "http://model-gateway.internal:8080/v1")
     monkeypatch.setenv("LLM_MODEL_NAME", "official-model")
     monkeypatch.setenv("GRAPHITI_LLM_API_KEY", "direct-key")
-    monkeypatch.setenv("GRAPHITI_LLM_BASE_URL", "http://direct-oauth-gateway:8090/v1")
+    monkeypatch.setenv("GRAPHITI_LLM_BASE_URL", "http://chatgpt-oauth-gateway:8090/v1")
     monkeypatch.setenv("GRAPHITI_LLM_MODEL", "gpt-5.6-luna")
 
     graphiti_client, captured = _load_graphiti_client(monkeypatch)
@@ -250,7 +250,7 @@ def test_llm_prefers_dedicated_graphiti_environment(monkeypatch):
     client._build_default_llm_client()
 
     assert captured["llm"]["api_key"] == "direct-key"
-    assert captured["llm"]["base_url"] == "http://direct-oauth-gateway:8090/v1"
+    assert captured["llm"]["base_url"] == "http://chatgpt-oauth-gateway:8090/v1"
     assert captured["llm"]["model"] == "gpt-5.6-luna"
 
 

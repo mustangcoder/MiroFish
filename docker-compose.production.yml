@@ -1,17 +1,18 @@
 name: mirofishplus
 
 services:
-  direct-oauth-gateway:
+  chatgpt-oauth-gateway:
     build:
       context: .
       dockerfile: direct_gateway/Dockerfile
-    container_name: mirofishplus-direct-oauth-gateway
+    image: mirofishplus-chatgpt-oauth-gateway:latest
+    container_name: mirofishplus-chatgpt-oauth-gateway
     env_file:
       - .env
     expose:
       - "8090"
     volumes:
-      - direct_oauth_credentials:/var/lib/direct-oauth
+      - chatgpt_oauth_credentials:/var/lib/direct-oauth
     healthcheck:
       test: ["CMD", ".venv/bin/python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8090/health', timeout=3)"]
       interval: 15s
@@ -48,7 +49,7 @@ services:
     volumes:
       - mirofish_uploads:/app/backend/uploads
     depends_on:
-      direct-oauth-gateway:
+      chatgpt-oauth-gateway:
         condition: service_healthy
       neo4j:
         condition: service_healthy
@@ -116,8 +117,8 @@ services:
     mem_limit: 1024m
 
 volumes:
-  direct_oauth_credentials:
-    name: mirofishplus_direct_oauth_credentials
+  chatgpt_oauth_credentials:
+    name: mirofishplus_chatgpt_oauth_credentials
   neo4j_data:
     name: mirofishplus_neo4j_data
   neo4j_logs:

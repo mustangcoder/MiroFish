@@ -240,7 +240,7 @@ Make sure Docker Desktop is running, then execute from the project root:
 npm run docker:up
 ```
 
-This command creates a missing `.env`, migrates legacy Docker volumes, starts Neo4j 5.26 and the Direct OAuth Gateway, initializes or migrates `backend/uploads/mirofishplus.db`, starts MiroFishPlus, and waits for its health check. Re-running it never resets model configuration, task history, preparation checkpoints, uploads, or Docker volumes.
+This command creates a missing `.env`, migrates legacy Docker volumes, starts Neo4j 5.26 and the ChatGPT OAuth Gateway, initializes or migrates `backend/uploads/mirofishplus.db`, starts MiroFishPlus, and waits for its health check. Re-running it never resets model configuration, task history, preparation checkpoints, uploads, or Docker volumes.
 
 On the first upgrade from the legacy Docker names, the script stops but retains the old containers, copies each `mirofish_*` named volume read-only into its `mirofishplus_*` replacement, verifies file and byte counts, and writes a migration marker. Old volumes are never deleted, so the first migration temporarily requires approximately the same amount of additional disk space. Production volumes such as `mirofishplus_uploads` and `mirofishplus_embedding_cache` can be migrated with `scripts/migrate-docker-volume.sh OLD_VOLUME NEW_VOLUME` under the same rules.
 

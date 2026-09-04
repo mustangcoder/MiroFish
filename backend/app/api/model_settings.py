@@ -88,7 +88,7 @@ def test_memory_backend():
 
 
 def _gateway_request(path, method='GET'):
-    base_url = os.environ.get('DIRECT_OAUTH_GATEWAY_URL', 'http://direct-oauth-gateway:8090')
+    base_url = os.environ.get('DIRECT_OAUTH_GATEWAY_URL', 'http://chatgpt-oauth-gateway:8090')
     token = os.environ.get('DIRECT_GATEWAY_TOKEN', '')
     request_value = urllib.request.Request(base_url + path, data=b'{}' if method == 'POST' else None, method=method, headers={'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'})
     try:

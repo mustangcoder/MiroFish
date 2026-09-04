@@ -164,7 +164,26 @@ def test_legacy_connections_migrate_idempotently(tmp_path):
     assert first["embedding"].capability == ModelCapability.EMBEDDING
     assert first["oauth"].vendor == ProviderVendor.CHATGPT_SUBSCRIPTION
     assert first["oauth"].auth_type == AuthType.OAUTH_GATEWAY
+    assert first["oauth"].base_url == "http://chatgpt-oauth-gateway:8090/v1"
     assert "is_local" not in first["custom"].__dataclass_fields__
+
+
+def test_existing_chatgpt_gateway_connection_migrates_to_new_internal_address(tmp_path):
+    database = tmp_path / "models.db"
+    cipher = CredentialCipher(tmp_path / "master.key")
+    store = ModelConfigStore(database, cipher)
+    item = store.create_connection(
+        "ChatGPT", ProviderVendor.CHATGPT_SUBSCRIPTION,
+        APIProtocol.OPENAI_RESPONSES, AuthType.OAUTH_GATEWAY,
+        ModelCapability.TEXT_GENERATION,
+        "http://direct-oauth-gateway:8090/v1", "",
+    )
+
+    reopened = ModelConfigStore(database, cipher)
+
+    assert reopened.get_connection(item.connection_id).base_url == (
+        "http://chatgpt-oauth-gateway:8090/v1"
+    )
 
 
 def test_connection_protocol_rows_are_migrated_and_replaceable(tmp_path):

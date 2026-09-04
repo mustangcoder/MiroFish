@@ -71,7 +71,7 @@ _PROVIDERS = {
     ProviderVendor.CHATGPT_SUBSCRIPTION: ProviderSpec(
         ProviderVendor.CHATGPT_SUBSCRIPTION,
         "ChatGPT Subscription",
-        "http://direct-oauth-gateway:8090/v1",
+        "http://chatgpt-oauth-gateway:8090/v1",
         (
             APIProtocol.OPENAI_RESPONSES,
             APIProtocol.OPENAI_CHAT_COMPLETIONS,

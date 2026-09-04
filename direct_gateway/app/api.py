@@ -107,7 +107,7 @@ def create_app(*, router, config, account_reader=None, device_logins=None, logou
 
     @app.get("/health")
     def health():
-        return {"status": "ok", "service": "mirofish-direct-oauth-gateway"}
+        return {"status": "ok", "service": "mirofishplus-chatgpt-oauth-gateway"}
 
     @app.get("/account")
     def account():

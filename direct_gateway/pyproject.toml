@@ -1,5 +1,5 @@
 [project]
-name = "mirofish-direct-oauth-gateway"
+name = "mirofishplus-chatgpt-oauth-gateway"
 version = "0.1.0"
 requires-python = ">=3.11,<3.13"
 dependencies = ["flask>=3.1,<4", "gunicorn>=23,<24", "httpx>=0.28,<1", "openai>=1.109,<2"]

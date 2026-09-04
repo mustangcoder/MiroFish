@@ -1,11 +1,12 @@
 name: mirofishplus
 
 services:
-  direct-oauth-gateway:
+  chatgpt-oauth-gateway:
     build:
       context: .
       dockerfile: direct_gateway/Dockerfile
-    container_name: mirofishplus-direct-oauth-gateway
+    image: mirofishplus-chatgpt-oauth-gateway:latest
+    container_name: mirofishplus-chatgpt-oauth-gateway
     env_file:
       - .env
     environment:
@@ -14,7 +15,7 @@ services:
     expose:
       - "8090"
     volumes:
-      - direct_oauth_credentials:/var/lib/direct-oauth
+      - chatgpt_oauth_credentials:/var/lib/direct-oauth
     healthcheck:
       test: ["CMD", ".venv/bin/python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8090/health', timeout=3)"]
       interval: 15s
@@ -64,7 +65,7 @@ services:
       - .env
     environment:
       DIRECT_GATEWAY_TOKEN: ${DIRECT_GATEWAY_TOKEN:-mirofish-local-only}
-      DIRECT_OAUTH_GATEWAY_URL: http://direct-oauth-gateway:8090
+      DIRECT_OAUTH_GATEWAY_URL: http://chatgpt-oauth-gateway:8090
       HF_HOME: /var/lib/mirofish/huggingface
       HUGGINGFACE_HUB_CACHE: /var/lib/mirofish/huggingface/hub
       HF_XET_CACHE: /var/lib/mirofish/huggingface/xet
@@ -78,7 +79,7 @@ services:
       - "5001:5001"
     restart: unless-stopped
     depends_on:
-      direct-oauth-gateway:
+      chatgpt-oauth-gateway:
         condition: service_healthy
       bootstrap:
         condition: service_completed_successfully
@@ -93,7 +94,7 @@ services:
       start_period: 20s
 
 volumes:
-  direct_oauth_credentials:
-    name: mirofishplus_direct_oauth_credentials
+  chatgpt_oauth_credentials:
+    name: mirofishplus_chatgpt_oauth_credentials
   huggingface_cache:
     name: mirofishplus_huggingface_cache

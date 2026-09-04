@@ -240,7 +240,7 @@ LLM_BOOST_MODEL_NAME=gpt-4o-mini
 npm run docker:up
 ```
 
-该命令会自动创建缺失的 `.env`、迁移旧 Docker 卷、启动 Neo4j 5.26 与 Direct OAuth Gateway，初始化或迁移 `backend/uploads/mirofishplus.db`，最后启动 MiroFishPlus 并等待健康检查。重复执行不会重置模型配置、任务记录、环境准备检查点、上传文件或 Docker 卷。
+该命令会自动创建缺失的 `.env`、迁移旧 Docker 卷、启动 Neo4j 5.26 与 ChatGPT OAuth Gateway，初始化或迁移 `backend/uploads/mirofishplus.db`，最后启动 MiroFishPlus 并等待健康检查。重复执行不会重置模型配置、任务记录、环境准备检查点、上传文件或 Docker 卷。
 
 从旧版 Docker 名称首次升级时，脚本会停止但保留旧容器，将 `mirofish_*` 命名卷只读复制到 `mirofishplus_*`，校验文件数和字节数后写入迁移标记。旧卷不会删除；首次迁移会额外占用约等于旧卷大小的磁盘空间。生产 Compose 的 `mirofishplus_uploads` 与 `mirofishplus_embedding_cache` 可使用 `scripts/migrate-docker-volume.sh OLD_VOLUME NEW_VOLUME` 按相同规则迁移。
 

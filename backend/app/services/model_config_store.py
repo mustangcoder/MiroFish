@@ -104,9 +104,30 @@ class ModelConfigStore:
                 if column not in columns:
                     connection.execute(f"ALTER TABLE model_connections ADD COLUMN {column} TEXT")
             self._migrate_provider_protocol_schema(connection)
+            self._migrate_chatgpt_gateway_address(connection)
             self._migrate_connection_protocol_rows(connection)
             self._migrate_role_assignment_protocols(connection)
             self._migrate_model_context_windows(connection)
+
+    def _migrate_chatgpt_gateway_address(self, connection):
+        connection.execute(
+            """
+            UPDATE model_connections
+            SET base_url='http://chatgpt-oauth-gateway:8090/v1'
+            WHERE base_url='http://direct-oauth-gateway:8090/v1'
+              AND (
+                connection_type='direct_oauth_gateway'
+                OR vendor='chatgpt_subscription'
+                OR auth_type='oauth_gateway'
+              )
+            """
+        )
+        connection.execute(
+            """
+            INSERT INTO model_config_state VALUES ('chatgpt_gateway_address_version', '1')
+            ON CONFLICT(state_key) DO UPDATE SET state_value=excluded.state_value
+            """
+        )
 
     def _migrate_provider_protocol_schema(self, connection):
         rows = connection.execute(

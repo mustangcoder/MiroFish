@@ -55,7 +55,7 @@ def test_model_router_exposes_internal_gateway_token(monkeypatch):
         protocol=SimpleNamespace(value="openai_responses"),
         auth_type=AuthType.OAUTH_GATEWAY,
         capability=SimpleNamespace(value="text_generation"),
-        base_url="http://direct-oauth-gateway:8090/v1",
+        base_url="http://chatgpt-oauth-gateway:8090/v1",
     )
     version = SimpleNamespace(assignments={
         ModelRole.HIGH_CAPABILITY: {"connection_id": "oauth", "model": "gateway-default"},

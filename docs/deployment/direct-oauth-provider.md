@@ -5,14 +5,14 @@
 登录：
 
 ```bash
-docker compose -f docker-compose.production.yml run --rm direct-oauth-gateway .venv/bin/python -m app.login login
+docker compose -f docker-compose.production.yml run --rm chatgpt-oauth-gateway .venv/bin/python -m app.login login
 ```
 
 状态与退出：
 
 ```bash
-docker compose -f docker-compose.production.yml run --rm direct-oauth-gateway .venv/bin/python -m app.login status
-docker compose -f docker-compose.production.yml run --rm direct-oauth-gateway .venv/bin/python -m app.login logout
+docker compose -f docker-compose.production.yml run --rm chatgpt-oauth-gateway .venv/bin/python -m app.login status
+docker compose -f docker-compose.production.yml run --rm chatgpt-oauth-gateway .venv/bin/python -m app.login logout
 ```
 
 回滚时删除或注释 `GRAPHITI_LLM_*`，Graphiti 会恢复读取 `OPENAI_*`；可停止旁路容器并保留凭据卷。
