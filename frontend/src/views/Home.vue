@@ -46,7 +46,7 @@
         <div class="hero-right">
           <!-- Logo 区域 -->
           <div class="logo-container">
-            <img src="../assets/logo/MiroFish_logo_left.jpeg" alt="MiroFishPlus Logo" class="hero-logo" />
+            <img src="../assets/logo/MiroFish_logo_compressed.jpeg" alt="MiroFishPlus Logo" class="hero-logo" />
           </div>
 
           <button class="scroll-down-btn" @click="scrollToBottom">
@@ -524,8 +524,10 @@ const startSimulation = () => {
 }
 
 .hero-logo {
-  max-width: 500px; /* 调整logo大小 */
+  display: block;
+  max-width: 620px;
   width: 100%;
+  height: auto;
 }
 
 .scroll-down-btn {
@@ -896,8 +898,13 @@ const startSimulation = () => {
   }
 
   .hero-logo {
-    max-width: 200px;
+    max-width: 360px;
     margin-bottom: 20px;
+  }
+
+  .logo-container {
+    justify-content: center;
+    padding-right: 0;
   }
 }
 </style>
