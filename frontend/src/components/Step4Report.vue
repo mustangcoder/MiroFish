@@ -376,11 +376,26 @@
 
     <!-- Bottom Console Logs -->
     <div class="console-logs">
+      <div
+        class="console-resize-handle"
+        role="separator"
+        aria-label="Resize console output"
+        aria-orientation="horizontal"
+        :aria-valuemin="MIN_CONSOLE_HEIGHT"
+        :aria-valuemax="maxConsoleHeight"
+        :aria-valuenow="consoleHeight"
+        tabindex="0"
+        @pointerdown="startConsoleResize"
+        @dblclick="resetConsoleHeight"
+        @keydown="handleConsoleResizeKeydown"
+      >
+        <span class="console-resize-grip"></span>
+      </div>
       <div class="log-header">
         <span class="log-title">CONSOLE OUTPUT</span>
         <span class="log-id">{{ reportId || 'NO_REPORT' }}</span>
       </div>
-      <div class="log-content" ref="logContent">
+      <div class="log-content" ref="logContent" :style="{ height: `${consoleHeight}px` }">
         <div class="log-line" v-for="(log, idx) in consoleLogs" :key="idx">
           <span class="log-msg" :class="getLogLevelClass(log)">{{ log }}</span>
         </div>
@@ -430,6 +445,63 @@ const leftPanel = ref(null)
 const rightPanel = ref(null)
 const logContent = ref(null)
 const showRawResult = reactive({})
+const MIN_CONSOLE_HEIGHT = 100
+const DEFAULT_CONSOLE_HEIGHT = 100
+const CONSOLE_HEIGHT_STORAGE_KEY = 'mirofishplus.reportConsoleHeight'
+const consoleHeight = ref(DEFAULT_CONSOLE_HEIGHT)
+const maxConsoleHeight = ref(Math.max(MIN_CONSOLE_HEIGHT, Math.round(window.innerHeight * 0.6)))
+let consoleResizeStartY = 0
+let consoleResizeStartHeight = DEFAULT_CONSOLE_HEIGHT
+
+const clampConsoleHeight = (height) => Math.min(
+  maxConsoleHeight.value,
+  Math.max(MIN_CONSOLE_HEIGHT, Math.round(height))
+)
+
+const persistConsoleHeight = () => {
+  localStorage.setItem(CONSOLE_HEIGHT_STORAGE_KEY, String(consoleHeight.value))
+}
+
+const handleConsoleResize = (event) => {
+  consoleHeight.value = clampConsoleHeight(
+    consoleResizeStartHeight + consoleResizeStartY - event.clientY
+  )
+}
+
+const stopConsoleResize = () => {
+  window.removeEventListener('pointermove', handleConsoleResize)
+  window.removeEventListener('pointerup', stopConsoleResize)
+  document.body.classList.remove('console-resizing')
+  persistConsoleHeight()
+}
+
+const startConsoleResize = (event) => {
+  if (event.button !== 0) return
+  event.preventDefault()
+  consoleResizeStartY = event.clientY
+  consoleResizeStartHeight = consoleHeight.value
+  document.body.classList.add('console-resizing')
+  window.addEventListener('pointermove', handleConsoleResize)
+  window.addEventListener('pointerup', stopConsoleResize)
+}
+
+const resetConsoleHeight = () => {
+  consoleHeight.value = DEFAULT_CONSOLE_HEIGHT
+  persistConsoleHeight()
+}
+
+const handleConsoleResizeKeydown = (event) => {
+  const direction = event.key === 'ArrowUp' ? 1 : event.key === 'ArrowDown' ? -1 : 0
+  if (!direction) return
+  event.preventDefault()
+  consoleHeight.value = clampConsoleHeight(consoleHeight.value + direction * 20)
+  persistConsoleHeight()
+}
+
+const updateConsoleHeightLimit = () => {
+  maxConsoleHeight.value = Math.max(MIN_CONSOLE_HEIGHT, Math.round(window.innerHeight * 0.6))
+  consoleHeight.value = clampConsoleHeight(consoleHeight.value)
+}
 
 // Toggle functions
 const toggleRawResult = (timestamp, event) => {
@@ -2177,6 +2249,11 @@ const stopPolling = () => {
 
 // Lifecycle
 onMounted(() => {
+  const savedHeight = Number(localStorage.getItem(CONSOLE_HEIGHT_STORAGE_KEY))
+  if (Number.isFinite(savedHeight)) {
+    consoleHeight.value = clampConsoleHeight(savedHeight)
+  }
+  window.addEventListener('resize', updateConsoleHeightLimit)
   if (props.reportId) {
     addLog(`Report Agent initialized: ${props.reportId}`)
     startPolling()
@@ -2185,6 +2262,10 @@ onMounted(() => {
 
 onUnmounted(() => {
   stopPolling()
+  window.removeEventListener('resize', updateConsoleHeightLimit)
+  window.removeEventListener('pointermove', handleConsoleResize)
+  window.removeEventListener('pointerup', stopConsoleResize)
+  document.body.classList.remove('console-resizing')
 })
 
 watch(() => props.reportId, (newId) => {
@@ -5104,12 +5185,46 @@ watch(() => props.reportId, (newId) => {
 
 /* Console Logs - 与 Step3Simulation.vue 保持一致 */
 .console-logs {
+  position: relative;
   background: #000;
   color: #DDD;
   padding: 16px;
   font-family: 'JetBrains Mono', monospace;
   border-top: 1px solid #222;
   flex-shrink: 0;
+}
+
+.console-resize-handle {
+  position: absolute;
+  top: -8px;
+  left: 0;
+  right: 0;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: ns-resize;
+  touch-action: none;
+  z-index: 2;
+}
+
+.console-resize-handle:focus-visible {
+  outline: 2px solid #FF5722;
+  outline-offset: -2px;
+}
+
+.console-resize-grip {
+  width: 48px;
+  height: 3px;
+  border-radius: 2px;
+  background: #555;
+  transition: background-color 0.2s, width 0.2s;
+}
+
+.console-resize-handle:hover .console-resize-grip,
+.console-resize-handle:focus-visible .console-resize-grip {
+  width: 64px;
+  background: #FF5722;
 }
 
 .log-header {
@@ -5131,7 +5246,6 @@ watch(() => props.reportId, (newId) => {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  height: 100px;
   overflow-y: auto;
   padding-right: 4px;
 }
