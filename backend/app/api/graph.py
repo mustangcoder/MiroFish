@@ -3,8 +3,8 @@
 采用项目上下文机制，服务端持久化状态
 """
 
-import os
 import re
+import sqlite3
 import traceback
 import threading
 from datetime import date
@@ -16,6 +16,7 @@ from zep_cloud import NotFoundError
 from . import graph_bp
 from ..config import Config
 from ..services.ontology_generator import OntologyGenerator
+from ..services.uploaded_file_store import UploadedFileStore
 from ..services.graph_builder import BatchSubmission, GraphBuilderService
 from ..services.text_processor import TextProcessor
 from ..services.corpus_slimmer import build_recent_corpus, subtract_years, write_recent_corpus
@@ -387,6 +388,7 @@ def generate_ontology():
 
     参数：
         files: 上传的文件（PDF/MD/TXT），可多个
+        file_ids: 已上传文件库中的文件 ID，可多个；按首次出现去重并排在新上传文件之前
         simulation_requirement: 模拟需求描述（必填）
         project_name: 项目名称（可选）
         additional_context: 额外说明（可选）
@@ -424,41 +426,87 @@ def generate_ontology():
                 "error": t('api.requireSimulationRequirement')
             }), 400
 
-        # 获取上传的文件
-        uploaded_files = request.files.getlist('files')
-        if not uploaded_files or all(not f.filename for f in uploaded_files):
+        # 已有文件按 file_ids 首次出现的顺序去重，并排在新上传文件之前。
+        file_ids = list(dict.fromkeys(
+            file_id for file_id in request.form.getlist('file_ids') if file_id
+        ))
+        uploaded_files = [
+            file for file in request.files.getlist('files')
+            if file and file.filename
+        ]
+        if not file_ids and not uploaded_files:
             return jsonify({
                 "success": False,
                 "error": t('api.requireFileUpload')
             }), 400
 
+        file_store = UploadedFileStore()
+        try:
+            for uploaded_file in uploaded_files:
+                file_store.validate_display_name(uploaded_file.filename)
+        except ValueError as error:
+            return jsonify({
+                "success": False,
+                "error": str(error),
+            }), 400
+        file_store.ensure_legacy_migration()
+        existing_files = []
+        for file_id in file_ids:
+            file_info = file_store.get_referenceable_file(file_id)
+            if file_info is None:
+                unavailable_file = file_store.get_file(file_id)
+                if unavailable_file is not None:
+                    return jsonify({
+                        "success": False,
+                        "error": f"文件暂时不可引用: {file_id}",
+                    }), 409
+                return jsonify({
+                    "success": False,
+                    "error": f"文件不存在: {file_id}"
+                }), 404
+            existing_files.append(file_info)
+
+        new_files = file_store.save_uploads([
+            (file, file.filename) for file in uploaded_files
+        ])
+        source_files = [*existing_files, *new_files]
+
         # 创建项目
         project = ProjectManager.create_project(name=project_name)
         project.simulation_requirement = simulation_requirement
+        try:
+            file_store.add_project_references(
+                project.project_id,
+                [file_info["file_id"] for file_info in source_files],
+            )
+        except sqlite3.IntegrityError:
+            ProjectManager.delete_project(project.project_id)
+            project = None
+            return jsonify({
+                "success": False,
+                "error": "所选文件已被删除或暂时不可引用，请重新选择",
+            }), 409
+        project.files = [
+            {
+                "file_id": file_info["file_id"],
+                "filename": file_info["display_name"],
+                "size": file_info["size"],
+            }
+            for file_info in source_files
+        ]
+        ProjectManager.save_project(project)
         logger.info(f"创建项目: {project.project_id}")
 
         # 保存文件并提取文本
         document_texts = []
         all_text = ""
 
-        for file in uploaded_files:
-            if file and file.filename and allowed_file(file.filename):
-                # 保存文件到项目目录
-                file_info = ProjectManager.save_file_to_project(
-                    project.project_id,
-                    file,
-                    file.filename
-                )
-                project.files.append({
-                    "filename": file_info["original_filename"],
-                    "size": file_info["size"]
-                })
-
-                # 提取文本
-                text = FileParser.extract_text(file_info["path"])
-                text = TextProcessor.preprocess_text(text)
-                document_texts.append(text)
-                all_text += f"\n\n=== {file_info['original_filename']} ===\n{text}"
+        for file_info in source_files:
+            file_path = file_store.library_dir / file_info["stored_filename"]
+            text = FileParser.extract_text(file_path)
+            text = TextProcessor.preprocess_text(text)
+            document_texts.append(text)
+            all_text += f"\n\n=== {file_info['display_name']} ===\n{text}"
 
         if not document_texts:
             ProjectManager.delete_project(project.project_id)
@@ -532,26 +580,19 @@ def generate_ontology():
             response_status = 500
             logger.exception("Unexpected ontology generation failure")
 
-        response_data = None
         if project is not None:
-            project.status = ProjectStatus.FAILED
-            project.error = public_error
-            project.ontology_generation_pending = False
             try:
-                ProjectManager.save_project(project)
+                ProjectManager.delete_project(project.project_id)
             except Exception:
                 logger.exception(
-                    "Failed to persist ontology failure for project %s",
+                    "Failed to delete project after ontology failure: %s",
                     project.project_id,
                 )
-            response_data = {"project_id": project.project_id}
 
         payload = {
             "success": False,
             "error": public_error,
         }
-        if response_data is not None:
-            payload["data"] = response_data
         return jsonify(payload), response_status
 
 

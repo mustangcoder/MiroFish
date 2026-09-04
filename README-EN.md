@@ -123,6 +123,12 @@ Zep Cloud writes whose outcome cannot be confirmed are marked ambiguous and are 
 
 The recovery path is covered by automated tests for lease takeover, persona reuse, OASIS database rollback, log-tail truncation, graph-ingestion deduplication, and report-section reuse. It was also validated in Docker by interrupting a real task during ontology generation, Graphiti building, persona generation, graph ingestion, and report generation.
 
+### File library and reuse across simulations
+
+Uploaded seed materials enter the **global file library** instead of being tied to only the current simulation. When creating a new simulation, select an existing library file to reuse the same source material without uploading it again.
+
+To keep the inputs of past simulations traceable, a file referenced by any simulation project cannot be deleted from the library. Delete every project that references the file before deleting the file. Docker persists both files and the database in `backend/uploads/` (the `mirofishplus_uploads` volume), so upgrades and restarts do not clear the file library.
+
 ## 🎯 Use Cases
 
 | Scenario | Description |
@@ -165,7 +171,7 @@ Supports OpenAI Responses, OpenAI Chat Completions, and Anthropic Messages. For 
 
 Docker persists Hugging Face assets in the `huggingface_cache` volume and pre-downloads the OASIS Twitter recommender through the separate `hf-prefetch` service. Simulation startup verifies the cache again and fails clearly after a 15-minute download timeout instead of remaining indefinitely in the running state.
 
-MiroFishPlus-owned model configuration, background tasks, workflow checkpoints, and graph-ingestion ledger share `backend/uploads/mirofishplus.db`. Upgrades first copy the legacy `mirofish.db` without removing it, then idempotently import `model-config/models.db` and `tasks/tasks.db` while retaining every source file. OASIS Twitter and Reddit databases remain separate per simulation and receive a consistent snapshot at every completed round. After an abnormal restart, the original task resumes from the latest completed persona, graph batch, simulation round, or report section. Ambiguous non-idempotent Zep Cloud writes are surfaced for manual handling instead of being replayed blindly.
+MiroFishPlus-owned model configuration, background tasks, workflow checkpoints, and graph-ingestion ledger share `backend/uploads/mirofishplus.db`; files in the global file library are also stored under `backend/uploads/`. Upgrades first copy the legacy `mirofish.db` without removing it, then idempotently import `model-config/models.db` and `tasks/tasks.db` while retaining every source file. OASIS Twitter and Reddit databases remain separate per simulation and receive a consistent snapshot at every completed round. After an abnormal restart, the original task resumes from the latest completed persona, graph batch, simulation round, or report section. Ambiguous non-idempotent Zep Cloud writes are surfaced for manual handling instead of being replayed blindly.
 
 ```env
 LLM_API_KEY=your_api_key

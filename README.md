@@ -123,6 +123,12 @@ Zep Cloud 写入如果无法确认结果，会被标记为“状态不明确”�
 
 恢复链路已覆盖 workflow lease 接管、人设复用、OASIS 数据库回滚、日志尾部截断、图谱写入去重和报告章节复用等自动化测试，并通过 Docker 实际中断本体生成、Graphiti 构建、人设生成、图谱写入和报告生成进行验证。
 
+### 文件库与跨推演复用
+
+上传的种子材料会进入**全局文件库**，而不是只绑定当前推演。创建新的推演时，可直接从文件库选择既有文件，复用同一份材料，无需重复上传。
+
+为保证历史推演可以继续追溯其输入材料，已被任一推演项目引用的文件不能从文件库删除；请先删除引用该文件的推演项目，再删除文件。Docker 部署会将文件与数据库一同持久化在 `backend/uploads/`（对应 `mirofishplus_uploads` 卷）中，升级或重启不会清空文件库。
+
 ## 🎯 应用场景
 
 | 场景 | 描述 |
@@ -165,7 +171,7 @@ cp .env.example .env
 
 Docker 部署会将 Hugging Face 模型缓存持久化到 `huggingface_cache` 卷，并在独立的 `hf-prefetch` 服务中预下载 OASIS Twitter 推荐模型。推演启动前会再次检查缓存；下载超过 15 分钟会明确失败，而不会让任务无限停留在运行中。
 
-MiroFishPlus 自有的模型配置、后台任务、工作流检查点和图谱写入账本统一保存在 `backend/uploads/mirofishplus.db`。升级时会先无损复制旧 `mirofish.db`，再幂等导入旧的 `model-config/models.db` 与 `tasks/tasks.db`，并保留所有旧文件。OASIS 生成的 Twitter/Reddit 平台数据库仍按模拟单独保存，同时每轮生成一致性快照；服务异常重启后会复用原任务，从最近完成的人设、图谱批次、模拟轮次或报告章节继续。Zep Cloud 无法确认结果的非幂等写入不会被盲目重放，而会明确标记为需要人工处理。
+MiroFishPlus 自有的模型配置、后台任务、工作流检查点和图谱写入账本统一保存在 `backend/uploads/mirofishplus.db`；全局文件库的上传文件也保存在 `backend/uploads/`。升级时会先无损复制旧 `mirofish.db`，再幂等导入旧的 `model-config/models.db` 与 `tasks/tasks.db`，并保留所有旧文件。OASIS 生成的 Twitter/Reddit 平台数据库仍按模拟单独保存，同时每轮生成一致性快照；服务异常重启后会复用原任务，从最近完成的人设、图谱批次、模拟轮次或报告章节继续。Zep Cloud 无法确认结果的非幂等写入不会被盲目重放，而会明确标记为需要人工处理。
 
 ```env
 LLM_API_KEY=your_api_key

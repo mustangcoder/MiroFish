@@ -568,7 +568,7 @@ const initProject = async () => {
 const handleNewProject = async () => {
   const pending = getPendingUpload()
 
-  if (!pending.isPending || pending.files.length === 0) {
+  if (!pending.isPending || (pending.files.length === 0 && pending.uploadedFileIds.length === 0)) {
     error.value = '没有待上传的文件，请返回首页重新操作'
     loading.value = false
     return
@@ -584,6 +584,7 @@ const handleNewProject = async () => {
     pending.files.forEach(file => {
       formDataObj.append('files', file)
     })
+    pending.uploadedFileIds.forEach(fileId => formDataObj.append('file_ids', fileId))
     formDataObj.append('simulation_requirement', pending.simulationRequirement)
 
     // 调用本体生成 API

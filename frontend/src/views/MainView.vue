@@ -196,7 +196,7 @@ const initProject = async () => {
 
 const handleNewProject = async () => {
   const pending = getPendingUpload()
-  if (!pending.isPending || pending.files.length === 0) {
+  if (!pending.isPending || (pending.files.length === 0 && pending.uploadedFileIds.length === 0)) {
     error.value = 'No pending files found.'
     addLog('Error: No pending files found for new project.')
     return
@@ -210,6 +210,7 @@ const handleNewProject = async () => {
 
     const formData = new FormData()
     pending.files.forEach(f => formData.append('files', f))
+    pending.uploadedFileIds.forEach(fileId => formData.append('file_ids', fileId))
     formData.append('simulation_requirement', pending.simulationRequirement)
 
     const res = await generateOntology(formData)

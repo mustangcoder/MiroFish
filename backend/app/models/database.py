@@ -23,6 +23,104 @@ MODEL_TABLES = (
     "memory_backend_config",
 )
 TASK_TABLES = ("task_history",)
+FILE_LIBRARY_TABLES = (
+    "uploaded_files",
+    "project_files",
+    "uploaded_file_delete_operations",
+    "project_delete_operations",
+)
+
+
+def initialize_file_library_tables(connection: sqlite3.Connection) -> None:
+    """在调用方已开启的事务中创建并升级文件库表。"""
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS uploaded_files (
+            file_id TEXT PRIMARY KEY,
+            display_name TEXT NOT NULL,
+            stored_filename TEXT NOT NULL UNIQUE,
+            extension TEXT NOT NULL,
+            size INTEGER NOT NULL,
+            sha256 TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            legacy_source TEXT UNIQUE
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS project_files (
+            project_id TEXT NOT NULL,
+            file_id TEXT NOT NULL,
+            position INTEGER NOT NULL,
+            PRIMARY KEY(project_id, file_id),
+            FOREIGN KEY(file_id) REFERENCES uploaded_files(file_id) ON DELETE RESTRICT
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS uploaded_file_delete_operations (
+            operation_id TEXT PRIMARY KEY,
+            file_id TEXT NOT NULL UNIQUE,
+            stored_filename TEXT NOT NULL,
+            tombstone_filename TEXT NOT NULL UNIQUE,
+            state TEXT NOT NULL CHECK(state IN ('pending', 'failed')),
+            last_error TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY(file_id) REFERENCES uploaded_files(file_id) ON DELETE CASCADE
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS project_delete_operations (
+            operation_id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL UNIQUE,
+            original_path TEXT NOT NULL,
+            tombstone_path TEXT NOT NULL UNIQUE,
+            state TEXT NOT NULL CHECK(
+                state IN ('cleanup_pending', 'cleanup_failed', 'restore_failed')
+            ),
+            last_error TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )
+        """
+    )
+    uploaded_columns = {
+        row[1] for row in connection.execute("PRAGMA table_info(uploaded_files)")
+    }
+    if "extension" not in uploaded_columns:
+        connection.execute("ALTER TABLE uploaded_files ADD COLUMN extension TEXT NOT NULL DEFAULT ''")
+    if "size" not in uploaded_columns:
+        connection.execute("ALTER TABLE uploaded_files ADD COLUMN size INTEGER NOT NULL DEFAULT 0")
+        if "size_bytes" in uploaded_columns:
+            connection.execute("UPDATE uploaded_files SET size=size_bytes")
+    if "legacy_source" not in uploaded_columns:
+        connection.execute("ALTER TABLE uploaded_files ADD COLUMN legacy_source TEXT")
+    project_columns = {
+        row[1] for row in connection.execute("PRAGMA table_info(project_files)")
+    }
+    if "position" not in project_columns:
+        connection.execute("ALTER TABLE project_files ADD COLUMN position INTEGER NOT NULL DEFAULT 0")
+    connection.execute(
+        "CREATE INDEX IF NOT EXISTS idx_uploaded_files_display_name ON uploaded_files(display_name)"
+    )
+    connection.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_uploaded_files_legacy_source ON uploaded_files(legacy_source)"
+    )
+    connection.execute(
+        "CREATE INDEX IF NOT EXISTS idx_project_files_file_id ON project_files(file_id)"
+    )
+    connection.execute(
+        "CREATE INDEX IF NOT EXISTS idx_uploaded_file_delete_operations_state ON uploaded_file_delete_operations(state, updated_at)"
+    )
+    connection.execute(
+        "CREATE INDEX IF NOT EXISTS idx_project_delete_operations_state ON project_delete_operations(state, updated_at)"
+    )
 
 
 def unified_database_path() -> Path:
@@ -142,7 +240,12 @@ def _copy_legacy(connection, source: Path, marker: str, tables) -> None:
         connection.execute("DETACH DATABASE legacy")
 
 
-def initialize_unified_database(destination=None, legacy_models=None, legacy_tasks=None) -> Path:
+def initialize_unified_database(
+    destination=None,
+    legacy_models=None,
+    legacy_tasks=None,
+    legacy_files=None,
+) -> Path:
     destination = Path(destination or unified_database_path())
     destination.parent.mkdir(parents=True, exist_ok=True)
     upload_root = destination.parent
@@ -152,10 +255,23 @@ def initialize_unified_database(destination=None, legacy_models=None, legacy_tas
         connection.execute("PRAGMA busy_timeout=5000")
         connection.execute("PRAGMA foreign_keys=ON")
         connection.execute("PRAGMA journal_mode=WAL")
-        connection.execute(
-            "CREATE TABLE IF NOT EXISTS app_schema_migrations (migration_key TEXT PRIMARY KEY, applied_at TEXT NOT NULL)"
-        )
-        connection.commit()
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            connection.execute(
+                "CREATE TABLE IF NOT EXISTS app_schema_migrations (migration_key TEXT PRIMARY KEY, applied_at TEXT NOT NULL)"
+            )
+            initialize_file_library_tables(connection)
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            raise
         _copy_legacy(connection, legacy_models, "legacy_model_config_v1", MODEL_TABLES)
         _copy_legacy(connection, legacy_tasks, "legacy_task_history_v1", TASK_TABLES)
+        if legacy_files is not None:
+            _copy_legacy(
+                connection,
+                Path(legacy_files),
+                "legacy_uploaded_file_library_v1",
+                FILE_LIBRARY_TABLES,
+            )
     return destination

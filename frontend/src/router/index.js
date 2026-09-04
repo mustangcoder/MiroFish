@@ -7,6 +7,7 @@ import ReportView from '../views/ReportView.vue'
 import InteractionView from '../views/InteractionView.vue'
 import HistoryView from '../views/HistoryView.vue'
 import ModelSettingsView from '../views/ModelSettingsView.vue'
+import FileLibraryView from '../views/FileLibraryView.vue'
 
 const routes = [
   {
@@ -23,6 +24,11 @@ const routes = [
     path: '/settings',
     name: 'Settings',
     component: ModelSettingsView
+  },
+  {
+    path: '/files',
+    name: 'FileLibrary',
+    component: FileLibraryView
   },
   {
     path: '/process/:projectId',
