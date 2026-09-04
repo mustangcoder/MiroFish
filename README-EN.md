@@ -104,6 +104,25 @@ flowchart LR
 
 5. **Deep Interaction** — Chat with any character in the simulated world & interact with ReportAgent. Users can intervene in the simulated world at any time, exploring how outcomes evolve under different decision paths.
 
+## ♻️ End-to-End Checkpoint Recovery
+
+MiroFishPlus persists long-running work at safe boundaries. After a page refresh or abnormal service restart, the startup recovery coordinator reuses the original project, simulation, report, and task IDs and continues from the latest complete checkpoint instead of replaying the entire workflow.
+
+| Stage | Persisted state | Recovery behavior |
+|-------|-----------------|-------------------|
+| Ontology generation | Uploaded files, extracted text, simulation requirement, and additional context | Continues on the original project without requiring another upload |
+| Graph building | Original graph and task IDs, document-operation identity, and deterministic Episode UUIDs | Zep Cloud resumes polling a submitted batch; local Graphiti skips confirmed document Episodes |
+| Environment preparation | Per-entity personas, generation parameters, current stage, and workflow lease | Generates only missing personas, then continues simulation configuration and initial-event generation |
+| OASIS simulation | A consistent per-platform SQLite snapshot, JSONL byte offset, completed round, and action count | Truncates an incomplete log tail and resumes from the latest complete round without replaying earlier rounds |
+| Graph ingestion | Deterministic batch key, platform and round provenance, attempt count, status, and Episode UUID | Confirmed batches are not sent twice; retryable local writes resume safely |
+| Report generation | Outline, completed sections, content digest, report ID, and task ID | Reuses a valid outline and completed sections and generates only missing or damaged sections |
+
+Workflow metadata and the graph-ingestion ledger live in `backend/uploads/mirofishplus.db`. OASIS platform databases remain under each simulation directory because they are runtime state rather than application configuration. Every completed round also receives a consistent checkpoint copy.
+
+Zep Cloud writes whose outcome cannot be confirmed are marked ambiguous and are not replayed automatically because the remote mutation is not guaranteed to be idempotent. This fail-closed behavior prevents duplicate facts. Local Graphiti uses deterministic Episode identities and can therefore resume safely.
+
+The recovery path is covered by automated tests for lease takeover, persona reuse, OASIS database rollback, log-tail truncation, graph-ingestion deduplication, and report-section reuse. It was also validated in Docker by interrupting a real task during ontology generation, Graphiti building, persona generation, graph ingestion, and report generation.
+
 ## 🎯 Use Cases
 
 | Scenario | Description |
