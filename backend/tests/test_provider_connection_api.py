@@ -4,7 +4,7 @@ from app import create_app
 from app.services.credential_cipher import CredentialCipher
 from app.services.model_config_service import ModelConfigService
 from app.services.model_config_store import ModelConfigStore
-from app.models.model_config import APIProtocol, AuthType, ModelCapability, ModelRole, ProviderVendor
+from app.models.model_config import APIProtocol, AuthType, ModelCapability, ModelRole, ProtocolVerificationStatus, ProviderVendor
 
 
 def make_service(tmp_path):
@@ -104,6 +104,146 @@ def test_chatgpt_subscription_rejects_custom_auth_or_base_url(tmp_path, monkeypa
 
     assert response.status_code == 400
     assert "OAuth Gateway 地址和认证方式由系统管理" in response.get_json()["error"]
+
+
+def test_non_chatgpt_provider_rejects_oauth_gateway_auth(tmp_path, monkeypatch):
+    from app.api import model_settings
+
+    service = make_service(tmp_path)
+    monkeypatch.setattr(model_settings, "_service", lambda: service)
+    app = create_app()
+    app.config.update(TESTING=True)
+
+    response = app.test_client().post("/api/settings/models/connections", json={
+        "name": "错误 OAuth",
+        "vendor": "openai",
+        "protocol": "openai_responses",
+        "auth_type": "oauth_gateway",
+        "base_url": "https://api.openai.com/v1",
+    })
+
+    assert response.status_code == 400
+    assert "只有 ChatGPT Subscription" in response.get_json()["error"]
+
+
+def test_connection_can_be_edited_without_replacing_saved_secret(tmp_path, monkeypatch):
+    from app.api import model_settings
+
+    service = make_service(tmp_path)
+    item = service.store.create_connection(
+        "旧名称", ProviderVendor.CUSTOM, APIProtocol.OPENAI_CHAT_COMPLETIONS,
+        AuthType.API_KEY, ModelCapability.TEXT_GENERATION,
+        "https://old.example/v1", "saved-secret",
+    )
+    service.store.replace_connection_protocols(item.connection_id, [{
+        "protocol": "openai_chat_completions",
+        "capability": "text_generation",
+        "verification_status": "passed",
+    }])
+    service.store.record_test(
+        item.connection_id, "openai_chat_completions", "passed", 12
+    )
+    monkeypatch.setattr(model_settings, "_service", lambda: service)
+    app = create_app()
+    app.config.update(TESTING=True)
+
+    response = app.test_client().patch(
+        f"/api/settings/models/connections/{item.connection_id}",
+        json={
+            "name": "新名称",
+            "vendor": "custom",
+            "auth_type": "api_key",
+            "base_url": "https://new.example/v1",
+            "api_key": "",
+            "protocols": [{
+                "protocol": "openai_responses",
+                "capability": "text_generation",
+                "verification_status": "untested",
+            }],
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.get_json()["data"]["name"] == "新名称"
+    assert response.get_json()["data"]["base_url"] == "https://new.example/v1"
+    assert [row["protocol"] for row in response.get_json()["data"]["protocols"]] == [
+        "openai_responses"
+    ]
+    assert service.store.get_connection_secret(item.connection_id) == "saved-secret"
+    assert service.store.latest_test(item.connection_id) is None
+
+
+def test_editing_connection_parameters_invalidates_protocol_verification(tmp_path):
+    service = make_service(tmp_path)
+    item = service.store.create_connection(
+        "服务", ProviderVendor.CUSTOM, APIProtocol.OPENAI_CHAT_COMPLETIONS,
+        AuthType.NONE, ModelCapability.TEXT_GENERATION,
+        "http://old.internal/v1", "",
+    )
+    service.store.replace_connection_protocols(item.connection_id, [{
+        "protocol": "openai_chat_completions",
+        "capability": "text_generation",
+        "verification_status": "passed",
+        "last_tested_at": "2026-09-05T00:00:00",
+    }])
+
+    updated = service.update_connection(item.connection_id, {
+        "name": "服务",
+        "vendor": "custom",
+        "auth_type": "none",
+        "base_url": "http://new.internal/v1",
+        "protocols": [{
+            "protocol": "openai_chat_completions",
+            "capability": "text_generation",
+            "verification_status": "passed",
+            "last_tested_at": "2026-09-05T00:00:00",
+        }],
+    })
+
+    assert updated.protocols[0].verification_status == ProtocolVerificationStatus.UNTESTED
+    assert updated.protocols[0].last_tested_at is None
+
+
+def test_edit_cannot_remove_protocol_used_by_model_role(tmp_path, monkeypatch):
+    from app.api import model_settings
+
+    service = make_service(tmp_path)
+    item = service.store.create_connection(
+        "组合服务", ProviderVendor.CUSTOM, APIProtocol.OPENAI_CHAT_COMPLETIONS,
+        AuthType.NONE, ModelCapability.TEXT_GENERATION,
+        "http://model.internal/v1", "",
+    )
+    service.store.replace_connection_protocols(item.connection_id, [
+        {"protocol": "openai_chat_completions", "capability": "text_generation"},
+        {"protocol": "openai_embeddings", "capability": "embedding"},
+    ])
+    service.store.save_draft({
+        ModelRole.EMBEDDING: {
+            "connection_id": item.connection_id,
+            "protocol": "openai_embeddings",
+            "model": "embed",
+        },
+    })
+    monkeypatch.setattr(model_settings, "_service", lambda: service)
+    app = create_app()
+    app.config.update(TESTING=True)
+
+    response = app.test_client().patch(
+        f"/api/settings/models/connections/{item.connection_id}",
+        json={
+            "name": "组合服务",
+            "vendor": "custom",
+            "auth_type": "none",
+            "base_url": "http://model.internal/v1",
+            "protocols": [{
+                "protocol": "openai_chat_completions",
+                "capability": "text_generation",
+            }],
+        },
+    )
+
+    assert response.status_code == 409
+    assert "Embedding" in response.get_json()["error"]
 
 
 def test_unsaved_connection_can_be_tested_without_persisting(tmp_path, monkeypatch):

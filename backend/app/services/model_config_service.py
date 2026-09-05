@@ -20,6 +20,10 @@ from .model_metadata import input_token_budget, known_context_window
 from ..models.database import unified_database_path
 
 
+class ConnectionProtocolInUseError(ValueError):
+    pass
+
+
 class ModelConfigService:
     def __init__(self, store=None, environment=None):
         root = Path(Config.UPLOAD_FOLDER) / "model-config"
@@ -102,6 +106,8 @@ class ModelConfigService:
         vendor = ProviderVendor(data["vendor"])
         auth_type = AuthType(data["auth_type"])
         spec = get_provider_spec(vendor)
+        if auth_type == AuthType.OAUTH_GATEWAY and vendor != ProviderVendor.CHATGPT_SUBSCRIPTION:
+            raise ValueError("只有 ChatGPT Subscription 可以使用 OAuth Gateway 认证")
         if vendor == ProviderVendor.CHATGPT_SUBSCRIPTION and (
             auth_type != spec.default_auth_type
             or data.get("base_url") != spec.default_base_url
@@ -164,6 +170,77 @@ class ModelConfigService:
         )
         self.store.replace_connection_protocols(item.connection_id, protocols)
         return self.store.get_connection(item.connection_id)
+
+    def update_connection(self, connection_id, data):
+        current = self.store.get_connection(connection_id)
+        submitted = dict(data)
+        submitted.setdefault("vendor", current.vendor.value)
+        submitted.setdefault("auth_type", current.auth_type.value)
+        submitted.setdefault("base_url", current.base_url)
+        submitted.setdefault("name", current.name)
+        submitted.setdefault("protocols", [
+            {
+                "protocol": item.protocol.value,
+                "capability": item.capability.value,
+                "source": item.source.value,
+                "verification_status": item.verification_status.value,
+                "last_tested_at": item.last_tested_at,
+                "error_code": item.error_code,
+            }
+            for item in current.protocols
+        ])
+        submitted_api_key = submitted.get("api_key", "")
+        if submitted.get("auth_type") == AuthType.API_KEY.value and not submitted_api_key:
+            submitted["api_key"] = self.store.get_connection_secret(connection_id)
+        vendor, protocol, auth_type, _, protocols = self.validate_connection_data(
+            submitted,
+            require_protocols=True,
+        )
+        selected_protocols = {item["protocol"] for item in protocols}
+        current_protocols = {item.protocol.value for item in current.protocols}
+        connection_changed = (
+            vendor != current.vendor
+            or auth_type != current.auth_type
+            or submitted["base_url"] != current.base_url
+            or selected_protocols != current_protocols
+            or bool(submitted_api_key)
+        )
+        if connection_changed:
+            protocols = [
+                {
+                    **item,
+                    "verification_status": "untested",
+                    "last_tested_at": None,
+                    "error_code": None,
+                }
+                for item in protocols
+            ]
+        role_names = {
+            ModelRole.EMBEDDING: "Embedding",
+            ModelRole.HIGH_CAPABILITY: "高能力模型",
+            ModelRole.HIGH_THROUGHPUT: "高吞吐模型",
+        }
+        blocked_roles = [
+            role_names[role]
+            for role, assignment in self.store.get_draft().items()
+            if assignment.get("connection_id") == connection_id
+            and assignment.get("protocol") not in selected_protocols
+        ]
+        if blocked_roles:
+            raise ConnectionProtocolInUseError(
+                "不能移除正在被以下角色使用的协议: " + "、".join(blocked_roles)
+            )
+        return self.store.update_connection(
+            connection_id,
+            name=str(submitted["name"]).strip(),
+            vendor=vendor,
+            protocol=protocol,
+            auth_type=auth_type,
+            capability=protocol_capability(protocol),
+            base_url=submitted["base_url"],
+            api_key=submitted_api_key,
+            protocols=protocols,
+        )
 
     def save_draft(self, assignments):
         normalized = {ModelRole(role): config for role, config in assignments.items()}

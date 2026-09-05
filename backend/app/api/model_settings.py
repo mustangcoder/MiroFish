@@ -11,7 +11,7 @@ import urllib.request
 from flask import jsonify, request
 
 from . import model_settings_bp
-from ..services.model_config_service import ModelConfigService
+from ..services.model_config_service import ConnectionProtocolInUseError, ModelConfigService
 from ..services.model_connection_tester import ModelConnectionTester
 from ..services.model_discovery import ModelDiscovery
 from ..services.draft_connection_tester import DraftConnectionTester
@@ -149,7 +149,18 @@ def test_draft_connection():
 
 @model_settings_bp.patch('/connections/<connection_id>')
 def update_connection(connection_id):
-    return jsonify({"success": True, "data": _json(asdict(_service().store.update_connection(connection_id, **(request.get_json() or {}))))})
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify({"success": False, "error": "请求体必须是对象"}), 400
+    try:
+        item = _service().update_connection(connection_id, data)
+        return jsonify({"success": True, "data": _json(asdict(item))})
+    except ConnectionProtocolInUseError as error:
+        return jsonify({"success": False, "error": str(error)}), 409
+    except KeyError:
+        return jsonify({"success": False, "error": "Provider 连接不存在"}), 404
+    except ValueError as error:
+        return jsonify({"success": False, "error": str(error)}), 400
 
 
 @model_settings_bp.delete('/connections/<connection_id>')

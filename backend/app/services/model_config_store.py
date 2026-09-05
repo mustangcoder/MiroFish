@@ -489,32 +489,61 @@ class ModelConfigStore:
         with self._connect() as connection:
             connection.execute("DELETE FROM model_connections WHERE connection_id=?", (connection_id,))
 
-    def update_connection(self, connection_id, **changes):
+    def update_connection(self, connection_id, protocols=None, **changes):
         current = self.get_connection(connection_id)
         api_key = changes.pop("api_key", None)
+        auth_type = AuthType(changes.get("auth_type", current.auth_type))
+        capability = ModelCapability(changes.get("capability", current.capability))
+        connection_type = "embedding" if capability == ModelCapability.EMBEDDING else "openai_compatible"
+        if auth_type == AuthType.OAUTH_GATEWAY:
+            connection_type = "direct_oauth_gateway"
         values = {
             "name": changes.get("name", current.name),
             "base_url": changes.get("base_url", current.base_url),
             "enabled": int(changes.get("enabled", current.enabled)),
             "vendor": ProviderVendor(changes.get("vendor", current.vendor)).value,
             "protocol": APIProtocol(changes.get("protocol", current.protocol)).value,
-            "auth_type": AuthType(changes.get("auth_type", current.auth_type)).value,
-            "capability": ModelCapability(changes.get("capability", current.capability)).value,
+            "auth_type": auth_type.value,
+            "capability": capability.value,
+            "connection_type": connection_type,
             "updated_at": datetime.now().isoformat(),
         }
         with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
             connection.execute(
                 """
                 UPDATE model_connections SET
                     name=:name,base_url=:base_url,enabled=:enabled,
                     vendor=:vendor,protocol=:protocol,auth_type=:auth_type,
-                    capability=:capability,updated_at=:updated_at
+                    capability=:capability,connection_type=:connection_type,
+                    updated_at=:updated_at
                 WHERE connection_id=:connection_id
                 """,
                 {**values, "connection_id": connection_id},
             )
             if api_key:
                 connection.execute("UPDATE model_connections SET api_key_encrypted=?, api_key_masked=? WHERE connection_id=?", (self.cipher.encrypt(api_key), self.cipher.mask(api_key), connection_id))
+            elif auth_type != AuthType.API_KEY:
+                connection.execute(
+                    "UPDATE model_connections SET api_key_encrypted=NULL, api_key_masked=NULL WHERE connection_id=?",
+                    (connection_id,),
+                )
+            if protocols is not None:
+                connection.execute("DELETE FROM model_connection_protocols WHERE connection_id=?", (connection_id,))
+                for item in protocols:
+                    connection.execute(
+                        "INSERT INTO model_connection_protocols VALUES (?, ?, ?, ?, ?, ?, ?)",
+                        (
+                            connection_id,
+                            APIProtocol(item["protocol"]).value,
+                            ModelCapability(item["capability"]).value,
+                            ProtocolSource(item.get("source", ProtocolSource.MANUAL)).value,
+                            ProtocolVerificationStatus(item.get("verification_status", ProtocolVerificationStatus.UNTESTED)).value,
+                            item.get("last_tested_at"),
+                            item.get("error_code"),
+                        ),
+                    )
+            connection.execute("DELETE FROM model_test_runs WHERE connection_id=?", (connection_id,))
         return self.get_connection(connection_id)
 
     def get_state(self, key):
